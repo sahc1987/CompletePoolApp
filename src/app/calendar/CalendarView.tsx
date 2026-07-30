@@ -90,9 +90,14 @@ export default function CalendarView({
   const router = useRouter();
   const toast = useToast();
   const [view, setView] = useState<"day" | "week">("week");
-  // The day the summary below the grid describes. Follows the calendar's own
-  // anchor date, so prev/next/today and the Day/Week toggle all move it.
+  // The visible range the summary below the grid describes: [focusDate,
+  // rangeEnd). One day in Day view, seven in Week view.
   const [focusDate, setFocusDate] = useState(() => new Date(`${initialDate}T00:00:00`));
+  const [rangeEnd, setRangeEnd] = useState(() => {
+    const d = new Date(`${initialDate}T00:00:00`);
+    d.setDate(d.getDate() + 1);
+    return d;
+  });
   // Track the open job by id (not the object) so the modal always renders the
   // freshest data after an action refreshes the page.
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -221,9 +226,12 @@ export default function CalendarView({
           // bouncing back from the server. The server still re-checks.
           eventConstraint="businessHours"
           // Keep the summary in step with whatever range the grid moves to.
-          datesSet={() => {
-            const api = calendarRef.current?.getApi();
-            if (api) setFocusDate(api.getDate());
+          // activeStart/activeEnd are the dates actually on screen; the anchor
+          // date from getDate() could sit on an empty day and make the summary
+          // look like work was missing.
+          datesSet={(arg) => {
+            setFocusDate(arg.view.activeStart);
+            setRangeEnd(arg.view.activeEnd);
           }}
           events={events}
           editable={isAdmin}
@@ -273,13 +281,19 @@ export default function CalendarView({
 
       <DaySummary
         tasks={tasks}
-        day={focusDate}
+        from={focusDate}
+        to={rangeEnd}
         role={role}
         onSelect={isAdmin ? setEditingId : undefined}
       />
 
       {editing && isAdmin && (
         <EditTaskModal
+          // Finishing or charging refreshes the page while this modal stays
+          // open. Its duration/price live in useState and its date/time are
+          // uncontrolled defaultValues, so without remounting on a data change
+          // the form would keep showing — and then re-save — stale values.
+          key={`${editing.id}:${editing.start}:${editing.durationMin}:${editing.price}:${editing.status}`}
           task={editing}
           workers={workers}
           services={services}

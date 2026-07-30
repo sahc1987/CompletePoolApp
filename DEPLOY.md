@@ -67,6 +67,7 @@ git push -u origin main
    | `NEXTAUTH_SECRET` | `openssl rand -base64 32` (a **new** one)        |
    | `NEXTAUTH_URL`    | your deployed URL, e.g. `https://app.vercel.app` |
    | `CRON_SECRET`     | another `openssl rand -base64 32`                |
+   | `TZ`              | `America/New_York` — **required**, see below      |
 
 3. Deploy. `npm run build` runs `prisma generate` first, so the client is
    generated against the deployed schema.
@@ -94,6 +95,25 @@ npx prisma migrate deploy    # apply to Supabase (uses DIRECT_URL)
 
 Run `migrate deploy` against production yourself, or add it to the Vercel build
 command — never run `migrate dev` against Supabase, it can drop data.
+
+## Timezone — job times depend on it
+
+Job times are stored by parsing a local `YYYY-MM-DDTHH:MM` string on the server,
+so **the server's clock decides what "9:00 AM" means**. Vercel runs in UTC by
+default, which shifts every job by your UTC offset — a job entered as 11:00 AM
+gets stored as 11:00 UTC and displays as 7:00 AM in Eastern.
+
+Set `TZ` to the crews' timezone in Vercel's environment variables and redeploy.
+The same clock also drives:
+
+- the business-hours check (a 9 AM job would be tested against the wrong hour)
+- "today" in the notification bell's day summary
+- the Monday boundaries in the per-week hours report
+- the recurrence cron's idea of the current day
+
+A single `TZ` value is correct as long as all crews work in one timezone. If you
+ever operate across timezones, times need to be converted against an explicit
+business timezone in code instead of relying on the host clock.
 
 ## Notes
 

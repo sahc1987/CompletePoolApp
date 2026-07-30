@@ -7,6 +7,7 @@ import { editTask, finishTask, chargeTask } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import StatusBadge from "@/components/StatusBadge";
 import PaymentFields from "@/components/PaymentFields";
+import AddressMap from "@/components/AddressMap";
 import { Modal } from "@/components/Modal";
 import { useActionToast } from "@/components/Toast";
 import { inputClass, selectClass, labelClass, btnGhost } from "@/components/styles";
@@ -92,7 +93,8 @@ export default function EditTaskModal({
       open
       onClose={onClose}
       title="Edit job"
-      subtitle={`${task.clientName} · ${task.address}`}
+      // The address is shown (and mapped) below, so it isn't repeated here.
+      subtitle={task.clientName}
     >
       <>
         {/* Finish the job and take payment without leaving the calendar. */}
@@ -168,6 +170,11 @@ export default function EditTaskModal({
           {finished && !bill && (
             <p className="text-sm text-muted">Finished — no bill on record.</p>
           )}
+        </div>
+
+        {/* Where the job actually is — the subtitle only gives the text. */}
+        <div className="mb-5">
+          <AddressMap address={task.address} />
         </div>
 
         <form action={formAction} className="space-y-4">
