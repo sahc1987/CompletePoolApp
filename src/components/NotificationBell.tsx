@@ -12,6 +12,42 @@ type Notification = {
   createdAt: string;
 };
 
+type NextJob = {
+  id: string;
+  startTime: string;
+  clientName: string;
+  address: string;
+  serviceName: string;
+  workerName: string | null;
+};
+
+type Summary = {
+  scope: "team" | "mine";
+  todayTotal: number;
+  todayLeft: number;
+  assignedTotal: number;
+  next: NextJob | null;
+};
+
+function clockTime(iso: string) {
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+// "Today" when the job is later today, otherwise a short weekday + date.
+function dayLabel(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const sameDay =
+    d.getFullYear() === today.getFullYear() &&
+    d.getMonth() === today.getMonth() &&
+    d.getDate() === today.getDate();
+  if (sameDay) return "Today";
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
@@ -25,6 +61,7 @@ function timeAgo(iso: string) {
 export default function NotificationBell() {
   const router = useRouter();
   const [items, setItems] = useState<Notification[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -35,6 +72,7 @@ export default function NotificationBell() {
       if (!res.ok) return;
       const data = await res.json();
       setItems(data.items ?? []);
+      setSummary(data.summary ?? null);
       setUnread(data.unread ?? 0);
     } catch {
       /* offline / transient — keep last known state */
@@ -105,6 +143,67 @@ export default function NotificationBell() {
               Mark all read
             </button>
           </div>
+          {/* Workload at a glance, above the message feed: what's assigned,
+              what's left today, and where to be next. */}
+          {summary && (
+            <div className="border-b border-line bg-surface/60 px-4 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-faint">
+                  {summary.scope === "team" ? "Team today" : "Your day"}
+                </span>
+                <span className="text-xs text-muted">
+                  {summary.assignedTotal} open{" "}
+                  {summary.assignedTotal === 1 ? "job" : "jobs"} assigned
+                </span>
+              </div>
+
+              <p className="mt-1.5 text-sm text-ink">
+                {summary.todayTotal === 0 ? (
+                  "Nothing scheduled today."
+                ) : (
+                  <>
+                    <span className="font-semibold">
+                      {summary.todayTotal} {summary.todayTotal === 1 ? "job" : "jobs"}
+                    </span>{" "}
+                    today ·{" "}
+                    {summary.todayLeft === 0 ? (
+                      <span className="font-semibold text-good">all done</span>
+                    ) : (
+                      <span className="font-semibold">{summary.todayLeft} left</span>
+                    )}
+                  </>
+                )}
+              </p>
+
+              {summary.next ? (
+                <button
+                  onClick={() => {
+                    setOpen(false);
+                    router.push(summary.scope === "team" ? "/calendar" : "/worker");
+                  }}
+                  className="mt-2.5 flex w-full items-start gap-2.5 rounded-xl border border-line bg-white px-3 py-2 text-left transition hover:border-navy-500/40"
+                >
+                  <span className="mt-0.5 shrink-0 rounded-md bg-chrome-100 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-navy-800">
+                    Next
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-ink">
+                      {dayLabel(summary.next.startTime)}{" "}
+                      {clockTime(summary.next.startTime)} ·{" "}
+                      {summary.next.clientName}
+                    </span>
+                    <span className="block truncate text-xs text-faint">
+                      {summary.next.serviceName} · {summary.next.address}
+                      {summary.next.workerName && ` · ${summary.next.workerName}`}
+                    </span>
+                  </span>
+                </button>
+              ) : (
+                <p className="mt-2 text-xs text-faint">No upcoming jobs.</p>
+              )}
+            </div>
+          )}
+
           <div className="max-h-96 overflow-y-auto">
             {items.length === 0 ? (
               <p className="px-4 py-8 text-center text-sm text-faint">

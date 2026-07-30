@@ -6,6 +6,7 @@ import { createTask } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import { Field, FormSection } from "@/components/Field";
 import { inputClass, selectClass, labelClass } from "@/components/styles";
+import AddressMap from "@/components/AddressMap";
 import type { ActionState } from "@/lib/actions";
 
 type Client = { id: string; name: string; pools: { id: string; address: string }[] };
@@ -29,6 +30,7 @@ export default function AssignForm({
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(createTask, null);
   const [clientId, setClientId] = useState("");
+  const [poolId, setPoolId] = useState("");
   const [serviceId, setServiceId] = useState("");
   const [price, setPrice] = useState("");
   const [duration, setDuration] = useState("");
@@ -42,6 +44,14 @@ export default function AssignForm({
     [clients, clientId]
   );
   const serviceName = services.find((s) => s.id === serviceId)?.name;
+
+  // The pool is the service location, so its address is what gets mapped.
+  const selectedAddress = pools.find((p) => p.id === poolId)?.address ?? "";
+
+  function onClientChange(id: string) {
+    setClientId(id);
+    setPoolId(""); // the previous pool belongs to the previous client
+  }
 
   function onServiceChange(id: string) {
     setServiceId(id);
@@ -69,7 +79,7 @@ export default function AssignForm({
                 required
                 className={selectClass}
                 value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
+                onChange={(e) => onClientChange(e.target.value)}
               >
                 <option value="">Select a client…</option>
                 {clients.map((c) => (
@@ -79,7 +89,15 @@ export default function AssignForm({
             </Field>
 
             <Field label="Pool" htmlFor="poolId" required hint={!clientId ? "Pick a client to see their pools." : undefined}>
-              <select id="poolId" name="poolId" required className={selectClass} disabled={!clientId}>
+              <select
+                id="poolId"
+                name="poolId"
+                required
+                className={selectClass}
+                disabled={!clientId}
+                value={poolId}
+                onChange={(e) => setPoolId(e.target.value)}
+              >
                 <option value="">{clientId ? "Select a pool…" : "—"}</option>
                 {pools.map((p) => (
                   <option key={p.id} value={p.id}>{p.address}</option>
@@ -112,6 +130,12 @@ export default function AssignForm({
               </select>
             </Field>
           </div>
+
+          {selectedAddress && (
+            <div className="mt-5">
+              <AddressMap address={selectedAddress} />
+            </div>
+          )}
         </FormSection>
       </div>
 

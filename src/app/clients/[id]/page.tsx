@@ -85,16 +85,39 @@ export default async function ClientDetailPage({
             </ModalButton>
           </div>
 
-          <div className="space-y-4">
+          {/* One compact row per pool, editing in a dialog. Rendering every pool
+              as an open form instead makes the page unusable past a handful. */}
+          <div className="divide-y divide-line/60">
             {client.pools.map((p) => (
-              <div key={p.id} className="rounded-lg border border-line p-4">
-                <PoolForm clientId={client.id} pool={p} />
-                <div className="mt-3">
+              <div
+                key={p.id}
+                className="flex items-center justify-between gap-3 py-3 first:pt-0"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-ink">
+                    {p.address}
+                  </p>
+                  <p className="mt-0.5 text-xs text-faint">
+                    {[p.size, p.type].filter(Boolean).join(" · ") ||
+                      "No size or type set"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-1">
+                  <ModalButton
+                    label="Edit"
+                    title="Edit pool"
+                    subtitle={p.address}
+                    variant="ghost"
+                    icon={null}
+                  >
+                    <PoolForm clientId={client.id} pool={p} />
+                  </ModalButton>
                   <DeleteButton
                     action={deletePool}
                     hidden={{ id: p.id, clientId: client.id }}
-                    confirm="Delete this pool?"
-                    label="Delete pool"
+                    confirm={`Delete the pool at ${p.address}?`}
+                    label="Delete"
+                    className="rounded-full px-3 py-1.5 text-sm font-semibold text-danger transition hover:bg-danger/10"
                   />
                 </div>
               </div>

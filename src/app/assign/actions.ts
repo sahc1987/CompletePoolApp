@@ -6,7 +6,25 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
 import { expandRecurrences } from "@/lib/recurrence";
+import { notifyUser, notifyRoles } from "@/lib/notify";
 import type { ActionState } from "@/lib/actions";
+
+function fmt(d: Date) {
+  return d.toLocaleString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+const REPEAT_LABEL: Record<string, string> = {
+  DAILY: "daily",
+  WEEKLY: "weekly",
+  BIWEEKLY: "every 2 weeks",
+  MONTHLY: "monthly",
+};
 
 const schema = z.object({
   clientId: z.string().min(1, "Pick a client"),
@@ -26,7 +44,7 @@ export async function createTask(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireRole("ADMIN");
+  const actor = await requireRole("ADMIN");
   const parsed = schema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const d = parsed.data;
@@ -70,7 +88,7 @@ export async function createTask(
     recurrenceRuleId = rule.id;
   }
 
-  await prisma.task.create({
+  const task = await prisma.task.create({
     data: {
       clientId: d.clientId,
       poolId: d.poolId,
@@ -90,7 +108,31 @@ export async function createTask(
         })),
       },
     },
+    include: {
+      client: { select: { name: true } },
+      pool: { select: { address: true } },
+      service: { select: { name: true } },
+      worker: { select: { name: true } },
+    },
   });
+
+  // Tell the worker the job is theirs — until now assignment was silent.
+  const repeats = d.repeat !== "NONE" ? `, repeats ${REPEAT_LABEL[d.repeat]}` : "";
+  await notifyUser(
+    d.workerId,
+    `New job assigned: ${task.service.name} for ${task.client.name} — ${fmt(
+      task.startTime
+    )} at ${task.pool.address}${repeats}.`,
+    { link: "/worker" }
+  );
+  // Managers track team workload; the assigning admin already knows.
+  await notifyRoles(
+    ["ADMIN", "OWNER"],
+    `${task.worker.name} was assigned ${task.client.name}'s job on ${fmt(
+      task.startTime
+    )}${repeats}.`,
+    { link: "/calendar", exceptUserId: actor.id }
+  );
 
   // Immediately fill the rolling window so the calendar shows future dates.
   if (recurrenceRuleId) await expandRecurrences();

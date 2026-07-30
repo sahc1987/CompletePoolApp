@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
-import { notifyAll } from "@/lib/notify";
+import { notifyAll, notifyUser, notifyRoles } from "@/lib/notify";
 import { createBillForTask, recordPayment } from "@/lib/billing";
 import type { ActionState } from "@/lib/actions";
 
@@ -40,7 +40,15 @@ export async function rescheduleTask(
     include: { client: { select: { name: true } } },
   });
 
-  await notifyAll(
+  // The worker whose day just changed gets told directly; managers get the
+  // team-wide view. Unrelated workers are no longer pinged.
+  await notifyUser(
+    updated.workerId,
+    `Your job for ${updated.client.name} moved to ${fmt(start)}.`,
+    { link: "/worker" }
+  );
+  await notifyRoles(
+    ["ADMIN", "OWNER"],
     `${updated.client.name}'s job was rescheduled to ${fmt(start)}.`,
     { link: "/calendar", exceptUserId: actor.id }
   );
@@ -107,10 +115,36 @@ export async function editTask(
     changes.push(`assigned to ${updated.worker.name}`);
 
   if (changes.length > 0) {
-    await notifyAll(
+    await notifyRoles(
+      ["ADMIN", "OWNER"],
       `${updated.client.name}'s job updated: ${changes.join(", ")}.`,
       { link: "/calendar", exceptUserId: actor.id }
     );
+
+    const reassigned = before.workerId !== updated.workerId;
+    if (reassigned) {
+      // Both sides of a handover need to know their day changed.
+      await notifyUser(
+        updated.workerId,
+        `New job assigned: ${updated.service.name} for ${updated.client.name} — ${fmt(
+          startTime
+        )}.`,
+        { link: "/worker" }
+      );
+      await notifyUser(
+        before.workerId,
+        `${updated.client.name}'s job on ${fmt(
+          before.startTime
+        )} was reassigned to ${updated.worker.name} and is off your list.`,
+        { link: "/worker" }
+      );
+    } else {
+      await notifyUser(
+        updated.workerId,
+        `Your job for ${updated.client.name} was updated: ${changes.join(", ")}.`,
+        { link: "/worker" }
+      );
+    }
   }
 
   revalidatePath("/calendar");
