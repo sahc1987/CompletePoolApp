@@ -7,6 +7,12 @@ import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
 import { expandRecurrences } from "@/lib/recurrence";
 import { notifyUser, notifyRoles } from "@/lib/notify";
+import {
+  getWorkHours,
+  checkWorkHours,
+  findWorkerConflict,
+  conflictMessage,
+} from "@/lib/schedule";
 import type { ActionState } from "@/lib/actions";
 
 function fmt(d: Date) {
@@ -56,6 +62,23 @@ export async function createTask(
   }
 
   const startTime = new Date(`${d.date}T${d.time}:00`);
+
+  const hoursError = checkWorkHours(startTime, d.durationMin, await getWorkHours());
+  if (hoursError) return { error: hoursError };
+
+  const clash = await findWorkerConflict({
+    workerId: d.workerId,
+    startTime,
+    durationMin: d.durationMin,
+  });
+  if (clash) {
+    const worker = await prisma.user.findUnique({
+      where: { id: d.workerId },
+      select: { name: true },
+    });
+    return { error: conflictMessage(clash, worker?.name) };
+  }
+
   const extraIds = formData.getAll("extras").map(String).filter(Boolean);
 
   // Snapshot each extra's current price onto the task line.

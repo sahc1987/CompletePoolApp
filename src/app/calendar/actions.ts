@@ -5,6 +5,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
 import { notifyAll, notifyUser, notifyRoles } from "@/lib/notify";
+import {
+  getWorkHours,
+  checkWorkHours,
+  findWorkerConflict,
+  conflictMessage,
+} from "@/lib/schedule";
 import { createBillForTask, recordPayment } from "@/lib/billing";
 import type { ActionState } from "@/lib/actions";
 
@@ -29,13 +35,33 @@ export async function rescheduleTask(
   if (!taskId || !startISO) return { error: "Missing data" };
   const start = new Date(startISO);
   if (Number.isNaN(start.getTime())) return { error: "Invalid date" };
+  const minutes = Math.max(5, Math.round(durationMin));
+
+  // The drop target has to obey the same rules as the form; the calendar
+  // reverts the drag when this returns an error.
+  const existing = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { workerId: true },
+  });
+  if (!existing) return { error: "Task not found" };
+
+  const hoursError = checkWorkHours(start, minutes, await getWorkHours());
+  if (hoursError) return { error: hoursError };
+
+  const clash = await findWorkerConflict({
+    workerId: existing.workerId,
+    startTime: start,
+    durationMin: minutes,
+    excludeTaskId: taskId,
+  });
+  if (clash) return { error: conflictMessage(clash) };
 
   const updated = await prisma.task.update({
     where: { id: taskId },
     data: {
       startTime: start,
       date: new Date(start.getFullYear(), start.getMonth(), start.getDate()),
-      durationMin: Math.max(5, Math.round(durationMin)),
+      durationMin: minutes,
     },
     include: { client: { select: { name: true } } },
   });
@@ -88,6 +114,26 @@ export async function editTask(
   if (!before) return { error: "Task not found" };
 
   const startTime = new Date(`${d.date}T${d.time}:00`);
+
+  const hoursError = checkWorkHours(startTime, d.durationMin, await getWorkHours());
+  if (hoursError) return { error: hoursError };
+
+  // Checked against the worker the job is being saved with, which may differ
+  // from its current one.
+  const clash = await findWorkerConflict({
+    workerId: d.workerId,
+    startTime,
+    durationMin: d.durationMin,
+    excludeTaskId: d.taskId,
+  });
+  if (clash) {
+    const worker = await prisma.user.findUnique({
+      where: { id: d.workerId },
+      select: { name: true },
+    });
+    return { error: conflictMessage(clash, worker?.name) };
+  }
+
   const updated = await prisma.task.update({
     where: { id: d.taskId },
     data: {

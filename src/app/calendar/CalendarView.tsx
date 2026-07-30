@@ -8,8 +8,10 @@ import timeGridPlugin from "@fullcalendar/timegrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import type { EventClickArg, EventApi } from "@fullcalendar/core";
 import type { Role, TaskStatus } from "@prisma/client";
+import { useToast } from "@/components/Toast";
 import { rescheduleTask } from "./actions";
 import EditTaskModal from "./EditTaskModal";
+import DaySummary from "./DaySummary";
 
 // Flattened task shape the calendar renders, plus the raw fields the admin
 // editor needs to prefill (workerId, serviceId, durationMin).
@@ -57,18 +59,27 @@ export default function CalendarView({
   tasks,
   role,
   initialDate,
+  slotMinTime,
+  slotMaxTime,
   workers,
   services,
 }: {
   tasks: CalendarTask[];
   role: Role;
   initialDate: string;
+  /** Grid bounds, derived from the configured business hours. */
+  slotMinTime: string;
+  slotMaxTime: string;
   workers: Worker[];
   services: Service[];
 }) {
   const calendarRef = useRef<FullCalendar>(null);
   const router = useRouter();
+  const toast = useToast();
   const [view, setView] = useState<"day" | "week">("week");
+  // The day the summary below the grid describes. Follows the calendar's own
+  // anchor date, so prev/next/today and the Day/Week toggle all move it.
+  const [focusDate, setFocusDate] = useState(() => new Date(`${initialDate}T00:00:00`));
   // Track the open job by id (not the object) so the modal always renders the
   // freshest data after an action refreshes the page.
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -121,10 +132,13 @@ export default function CalendarView({
     const durationMin = Math.round((end.getTime() - event.start.getTime()) / 60_000);
     const res = await rescheduleTask(event.id, event.start.toISOString(), durationMin);
     if (res?.error) {
+      // Business-hours or double-booking rejection: put the event back where it
+      // was and say why.
       arg.revert();
-      alert(res.error);
+      toast(res.error, "error");
       return;
     }
+    toast("Job rescheduled.");
     router.refresh();
   }
 
@@ -171,8 +185,13 @@ export default function CalendarView({
           initialDate={initialDate}
           headerToolbar={{ left: "prev,next today", center: "title", right: "" }}
           height="auto"
-          slotMinTime="07:00:00"
-          slotMaxTime="19:00:00"
+          slotMinTime={slotMinTime}
+          slotMaxTime={slotMaxTime}
+          // Keep the summary in step with whatever range the grid moves to.
+          datesSet={() => {
+            const api = calendarRef.current?.getApi();
+            if (api) setFocusDate(api.getDate());
+          }}
           events={events}
           editable={isAdmin}
           eventStartEditable={isAdmin}
@@ -199,6 +218,13 @@ export default function CalendarView({
           }}
         />
       </div>
+
+      <DaySummary
+        tasks={tasks}
+        day={focusDate}
+        role={role}
+        onSelect={isAdmin ? setEditingId : undefined}
+      />
 
       {editing && isAdmin && (
         <EditTaskModal

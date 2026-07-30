@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFormState } from "react-dom";
 import { signEstimate } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
+import { useActionToast } from "@/components/Toast";
 import { inputClass, labelClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -11,6 +12,7 @@ import type { ActionState } from "@/lib/actions";
 // captured stroke is written to a hidden input as a base64 PNG on each change.
 export default function SignForm({ estimateId }: { estimateId: string }) {
   const [state, formAction] = useFormState<ActionState, FormData>(signEstimate, null);
+  useActionToast(state, { success: "Estimate signed." });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawing = useRef(false);
   const [data, setData] = useState("");

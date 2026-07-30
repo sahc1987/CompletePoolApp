@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFormState } from "react-dom";
 import { addLineItem } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
+import { useActionToast } from "@/components/Toast";
 import { inputClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -17,6 +18,7 @@ export default function LineItemForm({
   catalog: CatalogItem[];
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(addLineItem, null);
+  useActionToast(state, { success: "Line item added." });
   const [description, setDescription] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
   const formRef = useRef<HTMLFormElement>(null);

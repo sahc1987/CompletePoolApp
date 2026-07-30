@@ -3,11 +3,13 @@
 import { useFormState } from "react-dom";
 import { flagTask } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
+import { useActionToast } from "@/components/Toast";
 import { inputClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
 export default function FlagForm({ taskId }: { taskId: string }) {
   const [state, formAction] = useFormState<ActionState, FormData>(flagTask, null);
+  useActionToast(state, { success: "Job flagged and sent back." });
 
   return (
     <form action={formAction} className="flex flex-col gap-2">

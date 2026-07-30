@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useFormState } from "react-dom";
 import { setUserRole } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
+import { useActionToast } from "@/components/Toast";
 import { selectClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -25,6 +26,7 @@ export default function RoleForm({
   disabled?: boolean;
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(setUserRole, null);
+  useActionToast(state, { success: "Privileges updated." });
   const [value, setValue] = useState(role);
   const dirty = value !== role;
 

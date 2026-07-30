@@ -26,7 +26,7 @@ export default function PoolForm({
     pool ? updatePool : createPool,
     null
   );
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, { success: pool ? "Pool saved." : "Pool added." });
 
   return (
     <form action={formAction} className="space-y-3">

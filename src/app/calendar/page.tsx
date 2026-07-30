@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { toNumber } from "@/lib/serialize";
 import { paidAmount } from "@/lib/billing";
+import { getWorkHours, minToHHMM } from "@/lib/schedule";
 import CalendarView, { type CalendarTask } from "./CalendarView";
 
 export default async function CalendarPage() {
@@ -86,12 +87,21 @@ export default async function CalendarPage() {
   const pad = (n: number) => String(n).padStart(2, "0");
   const initialDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
+  // Calendar slots follow the configured workday, so the grid matches the hours
+  // jobs are actually allowed in. One slot of padding on each side keeps a job
+  // at the very edge from being clipped.
+  const hours = await getWorkHours();
+  const slotMinTime = `${minToHHMM(Math.max(0, hours.startMin - 60))}:00`;
+  const slotMaxTime = `${minToHHMM(Math.min(24 * 60, hours.endMin + 60))}:00`;
+
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
       <CalendarView
         tasks={calendarTasks}
         role={session.user.role}
         initialDate={initialDate}
+        slotMinTime={slotMinTime}
+        slotMaxTime={slotMaxTime}
         workers={workers}
         services={services.map((s) => ({
           id: s.id,

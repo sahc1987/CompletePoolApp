@@ -5,6 +5,7 @@ import { resetUserPassword } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import { Field } from "@/components/Field";
 import { ModalButton, useModalClose } from "@/components/Modal";
+import { useActionToast } from "@/components/Toast";
 import { inputClass, btnGhost } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -13,6 +14,7 @@ import type { ActionState } from "@/lib/actions";
 function Fields({ userId }: { userId: string }) {
   const close = useModalClose();
   const [state, formAction] = useFormState<ActionState, FormData>(resetUserPassword, null);
+  useActionToast(state, { success: "Password reset." });
 
   return (
     <form action={formAction} className="space-y-5">

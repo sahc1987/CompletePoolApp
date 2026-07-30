@@ -4,6 +4,7 @@ import { useFormState } from "react-dom";
 import { updateProfile } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import { Field } from "@/components/Field";
+import { useActionToast } from "@/components/Toast";
 import { inputClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -15,6 +16,7 @@ export default function ProfileForm({
   phone: string | null;
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(updateProfile, null);
+  useActionToast(state, { success: "Profile saved." });
 
   return (
     <form action={formAction} className="space-y-4">

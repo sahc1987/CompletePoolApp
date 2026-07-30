@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useFormState } from "react-dom";
 import { submitTask } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
+import { useActionToast } from "@/components/Toast";
 import { inputClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -17,6 +18,7 @@ export default function SubmitTaskForm({
   materials: Material[];
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(submitTask, null);
+  useActionToast(state, { success: "Job submitted for review." });
   const [open, setOpen] = useState(false);
 
   return (

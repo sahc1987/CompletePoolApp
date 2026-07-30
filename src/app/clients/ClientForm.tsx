@@ -22,7 +22,9 @@ export default function ClientForm({ client }: { client?: Client }) {
     client ? updateClient : createClient,
     null
   );
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, {
+    success: client ? "Client details saved." : "Client added.",
+  });
 
   return (
     <form action={formAction} className="space-y-5">

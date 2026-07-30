@@ -2,6 +2,7 @@
 
 import { useFormState } from "react-dom";
 import { respondMaterialRequest } from "./actions";
+import { useActionToast } from "@/components/Toast";
 import { inputClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -10,6 +11,7 @@ export default function RespondForm({ requestId }: { requestId: string }) {
     respondMaterialRequest,
     null
   );
+  useActionToast(state, { success: "Request answered." });
 
   return (
     <form action={formAction} className="flex flex-wrap items-center gap-2">

@@ -8,7 +8,9 @@ import DeleteButton from "@/components/DeleteButton";
 import { ModalButton } from "@/components/Modal";
 import { card } from "@/components/styles";
 import { toNumber } from "@/lib/serialize";
+import { getWorkHours, minToHHMM } from "@/lib/schedule";
 import CatalogForm, { type Field } from "./CatalogForm";
+import WorkHoursForm from "./WorkHoursForm";
 import {
   saveService,
   deleteService,
@@ -76,10 +78,11 @@ export default async function SettingsPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const [services, extras, taxRates] = await Promise.all([
+  const [services, extras, taxRates, hours] = await Promise.all([
     prisma.service.findMany({ orderBy: { name: "asc" } }),
     prisma.extraService.findMany({ orderBy: { name: "asc" } }),
     prisma.taxRate.findMany({ orderBy: { name: "asc" } }),
+    getWorkHours(),
   ]);
 
   const rowDelete =
@@ -90,10 +93,25 @@ export default async function SettingsPage() {
       <PageHeader
         title="Service"
         accent="settings"
-        subtitle="Your catalog of services, add-ons, and tax rates."
+        subtitle="Business hours, and your catalog of services, add-ons, and tax rates."
       />
 
       <div className="space-y-6">
+        {/* Business hours */}
+        <section className={card}>
+          <div className="mb-3">
+            <h2 className="text-lg font-semibold text-ink">Business hours</h2>
+            <p className="mt-0.5 text-sm text-muted">
+              The window jobs can be scheduled in, and the hours the calendar
+              shows.
+            </p>
+          </div>
+          <WorkHoursForm
+            start={minToHHMM(hours.startMin)}
+            end={minToHHMM(hours.endMin)}
+          />
+        </section>
+
         {/* Services */}
         <section className={card}>
           <div className="mb-2 flex items-center justify-between gap-3">

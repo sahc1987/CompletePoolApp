@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
 import { notifyAll } from "@/lib/notify";
+import { hhmmToMin } from "@/lib/schedule";
 import type { ActionState } from "@/lib/actions";
 
 const decimal = (label: string) =>
@@ -41,6 +42,36 @@ export async function saveService(
     });
   }
   revalidatePath("/settings");
+  return { ok: true };
+}
+
+// --- Business hours ----------------------------------------------------
+export async function saveWorkHours(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  await requireRole("ADMIN");
+
+  const startMin = hhmmToMin(String(formData.get("workdayStart") ?? ""));
+  const endMin = hhmmToMin(String(formData.get("workdayEnd") ?? ""));
+  if (startMin === null || endMin === null) {
+    return { error: "Enter both times as HH:MM." };
+  }
+  if (endMin <= startMin) {
+    return { error: "Closing time has to be after opening time." };
+  }
+
+  await prisma.appSettings.upsert({
+    where: { id: "app" },
+    update: { workdayStartMin: startMin, workdayEndMin: endMin },
+    create: { id: "app", workdayStartMin: startMin, workdayEndMin: endMin },
+  });
+
+  // Existing jobs are left alone — narrowing hours doesn't retroactively
+  // invalidate work already on the calendar, it only constrains new edits.
+  revalidatePath("/settings");
+  revalidatePath("/calendar");
+  revalidatePath("/assign");
   return { ok: true };
 }
 

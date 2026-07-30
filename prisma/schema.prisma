@@ -102,6 +102,16 @@ model User {
 // In-app notification, one row per recipient. Fanned out to all users when a
 // task's schedule/service/worker changes or the service catalog changes, so
 // everyone sees the change. Read state is per-recipient.
+// Single-row application configuration. `id` is pinned to a constant so every
+// read/upsert targets the same row. Times are minutes from local midnight,
+// which keeps comparisons trivial and avoids storing an ambiguous "HH:MM".
+model AppSettings {
+  id              String   @id @default("app")
+  workdayStartMin Int      @default(480) // 08:00
+  workdayEndMin   Int      @default(1140) // 19:00
+  updatedAt       DateTime @updatedAt
+}
+
 model Notification {
   id        String   @id @default(cuid())
   userId    String

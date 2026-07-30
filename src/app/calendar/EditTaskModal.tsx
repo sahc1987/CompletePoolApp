@@ -8,6 +8,7 @@ import SubmitButton from "@/components/SubmitButton";
 import StatusBadge from "@/components/StatusBadge";
 import PaymentFields from "@/components/PaymentFields";
 import { Modal } from "@/components/Modal";
+import { useActionToast } from "@/components/Toast";
 import { inputClass, selectClass, labelClass, btnGhost } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 import type { CalendarTask } from "./CalendarView";
@@ -52,6 +53,10 @@ export default function EditTaskModal({
   const { date, time } = localParts(task.start);
   const [duration, setDuration] = useState(String(task.durationMin));
   const [price, setPrice] = useState(String(task.price ?? 0));
+
+  useActionToast(state, { success: "Job updated." });
+  useActionToast(finishState, { success: "Job finished and billed." });
+  useActionToast(chargeState, { success: "Payment recorded." });
 
   const finished = task.status === "APPROVED";
   const bill = task.bill;

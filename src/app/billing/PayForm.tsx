@@ -9,7 +9,7 @@ import type { ActionState } from "@/lib/actions";
 
 function Fields({ billId, balance }: { billId: string; balance: number }) {
   const [state, formAction] = useFormState<ActionState, FormData>(payBill, null);
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, { success: "Payment recorded." });
 
   return (
     <form action={formAction} className="space-y-5">

@@ -9,7 +9,7 @@ import type { ActionState } from "@/lib/actions";
 
 export default function StockForm({ materialId }: { materialId: string }) {
   const [state, formAction] = useFormState<ActionState, FormData>(adjustStock, null);
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, { success: "Stock updated." });
 
   return (
     <form action={formAction} className="flex flex-wrap items-end gap-2">

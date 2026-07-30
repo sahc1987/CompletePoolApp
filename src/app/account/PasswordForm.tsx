@@ -5,12 +5,14 @@ import { useFormState } from "react-dom";
 import { changePassword } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import { Field } from "@/components/Field";
+import { useActionToast } from "@/components/Toast";
 import { inputClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
 export default function PasswordForm() {
   const [state, formAction] = useFormState<ActionState, FormData>(changePassword, null);
   const formRef = useRef<HTMLFormElement>(null);
+  useActionToast(state, { success: "Password changed." });
 
   // Clear the fields after a successful change.
   useEffect(() => {

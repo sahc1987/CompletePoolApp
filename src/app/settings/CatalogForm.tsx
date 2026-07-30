@@ -35,7 +35,7 @@ export default function CatalogForm({
   layout?: "inline" | "stacked";
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(action, null);
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, { success: `${id ? "Updated" : "Added"} successfully.` });
 
   const stacked = layout === "stacked";
 

@@ -5,6 +5,7 @@ import { useFormState } from "react-dom";
 import { createEstimate } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import { ModalCancel } from "@/components/Modal";
+import { useActionToast } from "@/components/Toast";
 import { inputClass, selectClass, labelClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
@@ -12,6 +13,7 @@ type Client = { id: string; name: string; pools: { id: string; address: string }
 
 export default function EstimateForm({ clients }: { clients: Client[] }) {
   const [state, formAction] = useFormState<ActionState, FormData>(createEstimate, null);
+  useActionToast(state, { success: "Estimate created." });
   const [clientId, setClientId] = useState("");
 
   const pools = useMemo(

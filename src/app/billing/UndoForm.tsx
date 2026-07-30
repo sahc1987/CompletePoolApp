@@ -21,7 +21,7 @@ function Fields({ billId }: { billId: string }) {
     markBillUnpaid,
     null
   );
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, { success: "Payments reversed — bill is unpaid again." });
 
   return (
     <form action={formAction} className="space-y-5">

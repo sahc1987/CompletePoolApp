@@ -21,7 +21,7 @@ export default function MaterialRequestForm({
     createMaterialRequest,
     null
   );
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, { success: "Material request sent." });
 
   return (
     <form action={formAction} className="space-y-4">

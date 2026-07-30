@@ -12,6 +12,7 @@ import {
 import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "./icons";
 import { btnPrimary, btnBlue, btnGhost } from "./styles";
+import { useActionToast } from "./Toast";
 import type { ActionState } from "@/lib/actions";
 
 // Forms live inside the dialog but own their own submit result, so they need a
@@ -27,10 +28,19 @@ export function useModalClose() {
  * Dismiss the surrounding dialog and pull in fresh data once an action
  * succeeds. Outside a modal it just refreshes, so forms can use it in both
  * places without branching.
+ *
+ * Also raises a toast for the result. Closing the dialog takes the form's own
+ * inline confirmation off screen with it, so without this a successful save
+ * looks like nothing happened.
  */
-export function useCloseOnSuccess(state: ActionState) {
+export function useCloseOnSuccess(
+  state: ActionState,
+  opts?: { success?: string }
+) {
   const close = useModalClose();
   const router = useRouter();
+
+  useActionToast(state, opts);
 
   useEffect(() => {
     if (!state?.ok) return;

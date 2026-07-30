@@ -10,7 +10,7 @@ import type { ActionState } from "@/lib/actions";
 
 export default function AddUserForm() {
   const [state, formAction] = useFormState<ActionState, FormData>(createUser, null);
-  useCloseOnSuccess(state);
+  useCloseOnSuccess(state, { success: "User added." });
 
   return (
     <form action={formAction} className="space-y-5">

@@ -7,6 +7,7 @@ import SubmitButton from "@/components/SubmitButton";
 import { Field, FormSection } from "@/components/Field";
 import { inputClass, selectClass, labelClass } from "@/components/styles";
 import AddressMap from "@/components/AddressMap";
+import { useActionToast } from "@/components/Toast";
 import type { ActionState } from "@/lib/actions";
 
 type Client = { id: string; name: string; pools: { id: string; address: string }[] };
@@ -29,6 +30,8 @@ export default function AssignForm({
   extras: Extra[];
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(createTask, null);
+  // Success here redirects to the calendar, so in practice this surfaces errors.
+  useActionToast(state, { success: "Job scheduled." });
   const [clientId, setClientId] = useState("");
   const [poolId, setPoolId] = useState("");
   const [serviceId, setServiceId] = useState("");
