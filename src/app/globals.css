@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Soft layered shadows used on cards and popovers. */
+  --shadow-card: 0 1px 2px rgba(11, 42, 99, 0.04), 0 4px 16px rgba(11, 42, 99, 0.06);
+  --shadow-lift: 0 2px 6px rgba(11, 42, 99, 0.08), 0 12px 32px rgba(11, 42, 99, 0.12);
+}
+
+body {
+  @apply text-ink;
+  /* Blue-to-teal gradient wash echoing the reference hero: a cool teal glow
+     top-right, a soft blue bottom-left, over the near-white app surface. */
+  background:
+    radial-gradient(1200px 600px at 100% -10%, #d8f3f6 0%, transparent 55%),
+    radial-gradient(1000px 500px at -10% 110%, #eaf3ff 0%, transparent 50%),
+    #f4f7fc;
+  background-attachment: fixed;
+}
+
+/* Visible keyboard focus in the brand teal, not the browser default. */
+:focus-visible {
+  outline: 2px solid #0e7490;
+  outline-offset: 2px;
+}
+
+::selection {
+  background: #0e7490;
+  color: #fff;
+}
+
+/* Smooth in-page anchor scrolling. */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Brand-teal accent for checkboxes/radios instead of the default gray. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: #0e7490;
+}
+
+/* Utility helpers layered on top of Tailwind. */
+@layer components {
+  .shadow-card {
+    box-shadow: var(--shadow-card);
+  }
+  .shadow-lift {
+    box-shadow: var(--shadow-lift);
+  }
+  /* Two-tone brand heading: dark base with a teal accent word, echoing the
+     reference hero's "Your Perfect Pool". */
+  .accent {
+    @apply text-teal-700;
+  }
+  /* Native <select> with a custom chevron so it matches text inputs. */
+  .form-select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' fill='none' stroke='%23647089' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.9rem center;
+    background-size: 1.15rem;
+    padding-right: 2.75rem;
+  }
+}

@@ -1,0 +1,213 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import type { EventClickArg, EventApi } from "@fullcalendar/core";
+import type { Role, TaskStatus } from "@prisma/client";
+import { rescheduleTask } from "./actions";
+import EditTaskModal from "./EditTaskModal";
+
+// Flattened task shape the calendar renders, plus the raw fields the admin
+// editor needs to prefill (workerId, serviceId, durationMin).
+export type CalendarBill = {
+  amount: number;
+  paid: number;
+  balance: number;
+  status: "PENDING" | "PARTIAL" | "PAID";
+  method: "CASH" | "CHECK" | "ONLINE" | null;
+  paidAt: string | null;
+};
+
+export type CalendarTask = {
+  id: string;
+  title: string;
+  clientName: string;
+  address: string;
+  price: number | null;
+  workerId: string;
+  workerName: string;
+  serviceId: string;
+  durationMin: number;
+  start: string;
+  end: string;
+  status: TaskStatus;
+  // Null until the job is finished (or for non-admins, who don't see money).
+  bill: CalendarBill | null;
+};
+
+type Worker = { id: string; name: string };
+type Service = { id: string; name: string; basePrice: number; defaultDurationMin: number };
+
+// Kept in step with StatusBadge: aqua = in progress, slate = submitted.
+// Amber stays reserved for genuine problems.
+const STATUS_COLOR: Record<TaskStatus, string> = {
+  SCHEDULED: "#1a56db",
+  IN_PROGRESS: "#0e7490",
+  SUBMITTED: "#475569",
+  APPROVED: "#166534",
+  FLAGGED: "#b91c1c",
+  CANCELLED: "#9ca3af",
+};
+
+export default function CalendarView({
+  tasks,
+  role,
+  initialDate,
+  workers,
+  services,
+}: {
+  tasks: CalendarTask[];
+  role: Role;
+  initialDate: string;
+  workers: Worker[];
+  services: Service[];
+}) {
+  const calendarRef = useRef<FullCalendar>(null);
+  const router = useRouter();
+  const [view, setView] = useState<"day" | "week">("week");
+  // Track the open job by id (not the object) so the modal always renders the
+  // freshest data after an action refreshes the page.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const isAdmin = role === "ADMIN";
+  const editing = editingId ? tasks.find((t) => t.id === editingId) ?? null : null;
+
+  const events = tasks.map((t) => ({
+    id: t.id,
+    title: `${t.clientName} — ${t.title}`,
+    start: t.start,
+    end: t.end,
+    backgroundColor: STATUS_COLOR[t.status],
+    borderColor: STATUS_COLOR[t.status],
+    extendedProps: {
+      address: t.address,
+      price: t.price,
+      workerName: t.workerName,
+      status: t.status,
+    },
+  }));
+
+  // A 7-column week grid is unreadable on a phone — events truncate to a few
+  // characters. Field crews open this on a phone and care about today, so
+  // start on Day view at small widths (the toggle still works).
+  useEffect(() => {
+    if (window.matchMedia("(max-width: 639px)").matches) {
+      setView("day");
+      calendarRef.current?.getApi().changeView("timeGridDay");
+    }
+  }, []);
+
+  function switchView(next: "day" | "week") {
+    setView(next);
+    calendarRef.current
+      ?.getApi()
+      .changeView(next === "day" ? "timeGridDay" : "timeGridWeek");
+  }
+
+  function onEventClick(arg: EventClickArg) {
+    if (!isAdmin) return;
+    setEditingId(arg.event.id);
+  }
+
+  // Drag or resize -> persist the new start + duration, then refresh.
+  // Typed to the minimal shape both eventDrop and eventResize provide.
+  async function onEventChange(arg: { event: EventApi; revert: () => void }) {
+    const { event } = arg;
+    if (!event.start) return;
+    const end = event.end ?? new Date(event.start.getTime() + 30 * 60_000);
+    const durationMin = Math.round((end.getTime() - event.start.getTime()) / 60_000);
+    const res = await rescheduleTask(event.id, event.start.toISOString(), durationMin);
+    if (res?.error) {
+      arg.revert();
+      alert(res.error);
+      return;
+    }
+    router.refresh();
+  }
+
+  return (
+    <>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-ink">
+            {role === "WORKER" ? "My schedule" : "Job "}
+            {role !== "WORKER" && <span className="accent">calendar</span>}
+          </h1>
+          {isAdmin && (
+            <p className="mt-0.5 text-sm text-muted">
+              Click a job to edit its time, service, or worker · drag to reschedule
+            </p>
+          )}
+        </div>
+
+        <div className="flex overflow-hidden rounded-full border border-line bg-white p-0.5 shadow-sm">
+          <button
+            onClick={() => switchView("day")}
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+              view === "day" ? "bg-navy-700 text-white" : "text-ink hover:bg-chrome-100"
+            }`}
+          >
+            Day
+          </button>
+          <button
+            onClick={() => switchView("week")}
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+              view === "week" ? "bg-navy-700 text-white" : "text-ink hover:bg-chrome-100"
+            }`}
+          >
+            Week
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-line/80 bg-white p-3 shadow-card">
+        <FullCalendar
+          ref={calendarRef}
+          plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
+          initialView="timeGridWeek"
+          initialDate={initialDate}
+          headerToolbar={{ left: "prev,next today", center: "title", right: "" }}
+          height="auto"
+          slotMinTime="07:00:00"
+          slotMaxTime="19:00:00"
+          events={events}
+          editable={isAdmin}
+          eventStartEditable={isAdmin}
+          eventDurationEditable={isAdmin}
+          eventClick={onEventClick}
+          eventDrop={onEventChange}
+          eventResize={onEventChange}
+          eventContent={(arg) => {
+            const { address, price, workerName } = arg.event.extendedProps as {
+              address: string;
+              price: number | null;
+              workerName: string;
+            };
+            return (
+              <div className="px-1 py-0.5 text-xs leading-tight">
+                <div className="font-semibold">{arg.event.title}</div>
+                <div className="opacity-90">{address}</div>
+                {role !== "WORKER" && price !== null && (
+                  <div className="opacity-90">${price}</div>
+                )}
+                {role !== "WORKER" && <div className="opacity-75">{workerName}</div>}
+              </div>
+            );
+          }}
+        />
+      </div>
+
+      {editing && isAdmin && (
+        <EditTaskModal
+          task={editing}
+          workers={workers}
+          services={services}
+          onClose={() => setEditingId(null)}
+        />
+      )}
+    </>
+  );
+}

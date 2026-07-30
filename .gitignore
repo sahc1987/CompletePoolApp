@@ -1,0 +1,20 @@
+node_modules/
+.next/
+out/
+build/
+
+# Environment — never commit real credentials
+.env
+.env*.local
+!.env.example
+
+# Build artifacts
+next-env.d.ts
+tsconfig.tsbuildinfo
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+.vercel

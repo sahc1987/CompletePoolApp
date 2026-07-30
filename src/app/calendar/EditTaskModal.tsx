@@ -1,0 +1,250 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useFormState } from "react-dom";
+import { useRouter } from "next/navigation";
+import { editTask, finishTask, chargeTask } from "./actions";
+import SubmitButton from "@/components/SubmitButton";
+import StatusBadge from "@/components/StatusBadge";
+import PaymentFields from "@/components/PaymentFields";
+import { Modal } from "@/components/Modal";
+import { inputClass, selectClass, labelClass, btnGhost } from "@/components/styles";
+import type { ActionState } from "@/lib/actions";
+import type { CalendarTask } from "./CalendarView";
+
+type Worker = { id: string; name: string };
+type Service = { id: string; name: string; basePrice: number; defaultDurationMin: number };
+
+const METHOD_LABEL: Record<string, string> = {
+  CASH: "Cash",
+  CHECK: "Check",
+  ONLINE: "Online",
+};
+
+function usd(n: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+}
+
+function localParts(iso: string) {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
+    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+  };
+}
+
+export default function EditTaskModal({
+  task,
+  workers,
+  services,
+  onClose,
+}: {
+  task: CalendarTask;
+  workers: Worker[];
+  services: Service[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const [state, formAction] = useFormState<ActionState, FormData>(editTask, null);
+  const [finishState, finishAction] = useFormState<ActionState, FormData>(finishTask, null);
+  const [chargeState, chargeAction] = useFormState<ActionState, FormData>(chargeTask, null);
+  const { date, time } = localParts(task.start);
+  const [duration, setDuration] = useState(String(task.durationMin));
+  const [price, setPrice] = useState(String(task.price ?? 0));
+
+  const finished = task.status === "APPROVED";
+  const bill = task.bill;
+
+  // Close + refresh once the save succeeds.
+  useEffect(() => {
+    if (state?.ok) {
+      onClose();
+      router.refresh();
+    }
+  }, [state, onClose, router]);
+
+  // Finishing / charging keeps the modal open so the panel updates in place.
+  useEffect(() => {
+    if (finishState?.ok || chargeState?.ok) router.refresh();
+  }, [finishState, chargeState, router]);
+
+  function onServiceChange(serviceId: string) {
+    const svc = services.find((s) => s.id === serviceId);
+    if (svc) {
+      setDuration(String(svc.defaultDurationMin));
+      setPrice(String(svc.basePrice));
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Edit job"
+      subtitle={`${task.clientName} · ${task.address}`}
+    >
+      <>
+        {/* Finish the job and take payment without leaving the calendar. */}
+        <div className="mb-5 rounded-2xl border border-line/70 bg-surface p-4">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <span className="text-[15px] font-bold text-navy-900">
+              Job status
+            </span>
+            <StatusBadge status={task.status} />
+          </div>
+
+          {!finished && (
+            <form action={finishAction}>
+              <input type="hidden" name="taskId" value={task.id} />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <p className="text-sm text-muted">
+                  Mark this job complete and create the customer&apos;s bill.
+                </p>
+                <SubmitButton pendingLabel="Finishing…">Finish job</SubmitButton>
+              </div>
+              {finishState?.error && (
+                <p className="mt-2 text-sm text-danger">{finishState.error}</p>
+              )}
+            </form>
+          )}
+
+          {finished && bill && bill.status !== "PAID" && (
+            <form action={chargeAction} className="space-y-4">
+              <input type="hidden" name="taskId" value={task.id} />
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <div className="text-sm text-muted">
+                    {bill.status === "PARTIAL" ? "Balance due" : "Amount due"}
+                  </div>
+                  <div className="text-2xl font-bold text-ink">{usd(bill.balance)}</div>
+                </div>
+                {bill.status === "PARTIAL" && (
+                  <span className="text-sm text-muted">
+                    {usd(bill.paid)} of {usd(bill.amount)} collected
+                  </span>
+                )}
+              </div>
+
+              <PaymentFields balance={bill.balance} />
+
+              {chargeState?.error && (
+                <p className="text-sm text-danger">{chargeState.error}</p>
+              )}
+              <div className="flex justify-end">
+                <SubmitButton pendingLabel="Charging…">Charge customer</SubmitButton>
+              </div>
+            </form>
+          )}
+
+          {finished && bill && bill.status === "PAID" && (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-sm text-muted">Paid</div>
+                <div className="text-2xl font-bold text-good">{usd(bill.amount)}</div>
+              </div>
+              <span className="rounded-full bg-good/10 px-3 py-1 text-sm font-semibold text-good">
+                {bill.method ? METHOD_LABEL[bill.method] : "Paid"}
+                {bill.paidAt
+                  ? ` · ${new Date(bill.paidAt).toLocaleDateString("en-US", {
+                      month: "short",
+                      day: "numeric",
+                    })}`
+                  : ""}
+              </span>
+            </div>
+          )}
+
+          {finished && !bill && (
+            <p className="text-sm text-muted">Finished — no bill on record.</p>
+          )}
+        </div>
+
+        <form action={formAction} className="space-y-4">
+          <input type="hidden" name="taskId" value={task.id} />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className={labelClass} htmlFor="edit-service">Service</label>
+              <select
+                id="edit-service"
+                name="serviceId"
+                required
+                defaultValue={task.serviceId}
+                className={selectClass}
+                onChange={(e) => onServiceChange(e.target.value)}
+              >
+                {services.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="edit-worker">Worker</label>
+              <select
+                id="edit-worker"
+                name="workerId"
+                required
+                defaultValue={task.workerId}
+                className={selectClass}
+              >
+                {workers.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="edit-date">Date</label>
+              <input id="edit-date" name="date" type="date" required defaultValue={date} className={inputClass} />
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="edit-time">Start time</label>
+              <input id="edit-time" name="time" type="time" required defaultValue={time} className={inputClass} />
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="edit-duration">Duration (min)</label>
+              <input
+                id="edit-duration"
+                name="durationMin"
+                type="number"
+                min={5}
+                required
+                value={duration}
+                onChange={(e) => setDuration(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+
+            <div>
+              <label className={labelClass} htmlFor="edit-price">Price ($)</label>
+              <input
+                id="edit-price"
+                name="price"
+                type="number"
+                step="0.01"
+                min={0}
+                required
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                className={inputClass}
+              />
+            </div>
+          </div>
+
+          {state?.error && <p className="text-sm text-danger">{state.error}</p>}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" onClick={onClose} className={btnGhost}>
+              Cancel
+            </button>
+            <SubmitButton pendingLabel="Saving…">Save changes</SubmitButton>
+          </div>
+        </form>
+      </>
+    </Modal>
+  );
+}

@@ -1,0 +1,409 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  // Pooled connection (Supabase pgbouncer) used at runtime by the app.
+  url       = env("DATABASE_URL")
+  // Direct connection used for migrations, which pgbouncer cannot proxy.
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  WORKER
+}
+
+// SCHEDULED -> IN_PROGRESS -> SUBMITTED -> APPROVED (billable) or FLAGGED (kicked back to worker/admin)
+enum TaskStatus {
+  SCHEDULED
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  FLAGGED
+  CANCELLED
+}
+
+enum Frequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum PhotoType {
+  BEFORE
+  AFTER
+}
+
+enum StockMovementType {
+  USAGE // material used on a task, logged when worker submits
+  RESTOCK // new stock received
+  ADJUSTMENT // manual correction (count, damage, etc.)
+  REVERSAL // task was CANCELLED after usage was logged; stock given back
+}
+
+enum MaterialRequestStatus {
+  PENDING
+  APPROVED
+  DENIED
+}
+
+enum PaymentStatus {
+  PENDING // billed, nothing collected yet
+  PARTIAL // some money in, balance still owed
+  PAID // settled in full
+}
+
+enum PaymentMethod {
+  CASH
+  CHECK
+  ONLINE
+}
+
+// PRESENTED = shown to the client on the worker's/admin's device, awaiting
+// their in-person signature. No separate "sent" step since there's no
+// remote delivery anymore.
+enum EstimateStatus {
+  DRAFT
+  PRESENTED
+  APPROVED
+  DECLINED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  phone        String?
+  role         Role
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  tasksAssigned Task[] @relation("AssignedWorker")
+  tasksApproved Task[] @relation("ApprovedBy")
+  materialRequestsMade      MaterialRequest[] @relation("RequestedBy")
+  materialRequestsResponded MaterialRequest[] @relation("RespondedBy")
+  estimatesCreated          Estimate[]        @relation("EstimateCreatedBy")
+  paymentsRecorded          Payment[]         @relation("PaymentRecordedBy")
+  paymentsReversed          PaymentReversal[] @relation("PaymentReversedBy")
+  notifications             Notification[]
+}
+
+// In-app notification, one row per recipient. Fanned out to all users when a
+// task's schedule/service/worker changes or the service catalog changes, so
+// everyone sees the change. Read state is per-recipient.
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  message   String
+  link      String? // where clicking the notification should take the user
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  pools     Pool[]
+  tasks     Task[]
+  estimates Estimate[]
+}
+
+model Pool {
+  id       String  @id @default(cuid())
+  clientId String
+  client   Client  @relation(fields: [clientId], references: [id])
+  address  String
+  size     String?
+  type     String?
+
+  tasks Task[]
+  estimates Estimate[]
+}
+
+model Service {
+  id                 String  @id @default(cuid())
+  name               String // "Daily Clean", "Maintenance", "Repair", etc.
+  basePrice          Decimal
+  defaultDurationMin Int
+
+  tasks Task[]
+}
+
+model ExtraService {
+  id    String  @id @default(cuid())
+  name  String
+  price Decimal
+
+  taskExtras TaskExtra[]
+}
+
+model RecurrenceRule {
+  id         String    @id @default(cuid())
+  frequency  Frequency
+  daysOfWeek Int[] // 0=Sun ... 6=Sat, used for WEEKLY/BIWEEKLY
+  startDate  DateTime
+  endDate    DateTime?
+
+  tasks Task[]
+}
+
+model Task {
+  id        String   @id @default(cuid())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+  poolId    String
+  pool      Pool     @relation(fields: [poolId], references: [id])
+  workerId  String
+  worker    User     @relation("AssignedWorker", fields: [workerId], references: [id])
+  serviceId String
+  service   Service  @relation(fields: [serviceId], references: [id])
+
+  date        DateTime
+  startTime   DateTime
+  durationMin Int
+  status      TaskStatus @default(SCHEDULED)
+  price       Decimal
+  notes       String?
+
+  recurrenceRuleId String?
+  recurrenceRule   RecurrenceRule? @relation(fields: [recurrenceRuleId], references: [id])
+
+  submittedAt  DateTime?
+  approvedAt   DateTime?
+  approvedById String?
+  approvedBy   User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
+  flagReason   String?
+
+  extras TaskExtra[]
+  photos Photo[]
+  materials TaskMaterial[]
+  stockMovements StockMovement[]
+  materialRequests MaterialRequest[]
+  estimate  Estimate? // set if this task originated from an approved estimate
+  bill      Bill? // created once the task is APPROVED (billable)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A bill for a finished (APPROVED) job. Amount snapshots the service price +
+// extras + materials at approval time. Paid in cash, check, or online.
+model Bill {
+  id        String         @id @default(cuid())
+  taskId    String         @unique
+  task      Task           @relation(fields: [taskId], references: [id])
+  amount    Decimal // total owed for the job
+  status    PaymentStatus  @default(PENDING)
+  method    PaymentMethod? // method of the most recent payment (display convenience)
+  paidAt    DateTime? // when it was settled in full
+  createdAt DateTime       @default(now())
+
+  payments  Payment[]
+  reversals PaymentReversal[]
+
+  @@index([status])
+}
+
+// Audit trail: recorded whenever an admin undoes the payments on a bill (e.g.
+// a check bounced). The payments themselves are deleted, so this row is the
+// standing record of why the money came back off and who did it.
+model PaymentReversal {
+  id             String   @id @default(cuid())
+  billId         String
+  bill           Bill     @relation(fields: [billId], references: [id])
+  reason         String
+  amountReversed Decimal // sum of the payments that were removed
+  paymentCount   Int // how many payment rows were removed
+  reversedById   String?
+  reversedBy     User?    @relation("PaymentReversedBy", fields: [reversedById], references: [id])
+  createdAt      DateTime @default(now())
+
+  @@index([billId])
+}
+
+// One money-in event against a bill. A bill can take several (partial)
+// payments, so the outstanding balance is amount - sum(payments.amount).
+model Payment {
+  id             String        @id @default(cuid())
+  billId         String
+  bill           Bill          @relation(fields: [billId], references: [id])
+  amount         Decimal
+  method         PaymentMethod
+  checkNumber    String? // required when method = CHECK
+  billingAddress String? // required when method = ONLINE (card billing address)
+  note           String?
+  paidAt         DateTime      @default(now())
+  recordedById   String?
+  recordedBy     User?         @relation("PaymentRecordedBy", fields: [recordedById], references: [id])
+
+  @@index([billId])
+}
+
+model TaskExtra {
+  id                String       @id @default(cuid())
+  taskId            String
+  task              Task         @relation(fields: [taskId], references: [id])
+  extraServiceId    String
+  extraService      ExtraService @relation(fields: [extraServiceId], references: [id])
+  priceAtTimeOfSale Decimal
+}
+
+model Photo {
+  id         String    @id @default(cuid())
+  taskId     String
+  task       Task      @relation(fields: [taskId], references: [id])
+  url        String
+  type       PhotoType
+  uploadedAt DateTime  @default(now())
+}
+
+// Admin-configured, reusable — e.g. "State Sales Tax" 6%, "County Tax" 1%.
+// Zero, one, or several can be attached to a given estimate; none is the
+// default (not every job is taxable).
+model TaxRate {
+  id     String  @id @default(cuid())
+  name   String
+  rate   Decimal // percentage, e.g. 6.5 for 6.5%
+  active Boolean @default(true)
+
+  estimateTaxes EstimateTax[]
+}
+
+model Material {
+  id               String  @id @default(cuid())
+  name             String // "Chlorine", "Filter Cartridge"
+  unit             String // "gallon", "unit", "lb"
+  costPrice        Decimal // what the company pays per unit
+  customerPrice    Decimal // what's billed per unit on the invoice
+  quantityOnHand   Decimal @default(0)
+  reorderThreshold Decimal // alert when quantityOnHand <= this
+  active           Boolean @default(true)
+
+  taskMaterials  TaskMaterial[]
+  stockMovements StockMovement[]
+  materialRequests MaterialRequest[]
+}
+
+// A worker flagging they need more of a material — either tied to a specific
+// job (taskId set) or a general "we're running low" report (taskId null).
+// Approving a request does NOT change quantityOnHand; that only happens
+// through an actual RESTOCK StockMovement once the material is received.
+model MaterialRequest {
+  id                String                 @id @default(cuid())
+  workerId          String
+  worker            User                   @relation("RequestedBy", fields: [workerId], references: [id])
+  materialId        String?
+  material          Material?              @relation(fields: [materialId], references: [id])
+  description       String? // free text, used when it's not in the catalog yet
+  quantityRequested Decimal
+  taskId            String?
+  task              Task?                  @relation(fields: [taskId], references: [id])
+  urgent            Boolean                @default(false) // blocking the current job vs. general restock
+  status            MaterialRequestStatus  @default(PENDING)
+  respondedById     String?
+  respondedBy       User?                  @relation("RespondedBy", fields: [respondedById], references: [id])
+  responseNote      String?
+  createdAt         DateTime               @default(now())
+  respondedAt       DateTime?
+}
+
+model TaskMaterial {
+  id                       String   @id @default(cuid())
+  taskId                   String
+  task                     Task     @relation(fields: [taskId], references: [id])
+  materialId               String
+  material                 Material @relation(fields: [materialId], references: [id])
+  quantityUsed             Decimal
+  costPriceAtTimeOfUse     Decimal // snapshot, so later cost changes don't rewrite history
+  customerPriceAtTimeOfUse Decimal
+}
+
+// Audit trail for every stock change, tied back to the task that caused it where applicable.
+model StockMovement {
+  id         String            @id @default(cuid())
+  materialId String
+  material   Material          @relation(fields: [materialId], references: [id])
+  type       StockMovementType
+  quantity   Decimal // negative for USAGE, positive for RESTOCK/REVERSAL
+  taskId     String?
+  task       Task?             @relation(fields: [taskId], references: [id])
+  note       String?
+  createdAt  DateTime          @default(now())
+}
+
+// A quote created by a worker or admin, presented and signed in person on
+// their device — the client never logs in or gets a separate link. Approval
+// is a captured signature, not a remote click.
+model Estimate {
+  id          String         @id @default(cuid())
+  clientId    String
+  client      Client         @relation(fields: [clientId], references: [id])
+  poolId      String?
+  pool        Pool?          @relation(fields: [poolId], references: [id])
+  createdById String
+  createdBy   User           @relation("EstimateCreatedBy", fields: [createdById], references: [id])
+  status      EstimateStatus @default(DRAFT)
+  notes       String?
+  validUntil  DateTime? // how long the quoted price is honored, business rule only
+  presentedAt DateTime?
+
+  // captured in person when the client approves
+  signedByName  String?
+  signatureData String? // base64 PNG from a signature pad
+  signedAt      DateTime?
+
+  // Snapshotted once presented/signed — these are the numbers the customer
+  // actually saw and signed for, independent of any later catalog changes.
+  subtotal Decimal? // sum of lineItems
+  taxTotal Decimal? // sum of taxes
+  total    Decimal? // subtotal + taxTotal
+
+  taxes EstimateTax[]
+
+  // captured if the client declines instead
+  declineReason String?
+  respondedAt   DateTime?
+
+  convertedTaskId String? @unique // set once admin schedules the approved estimate
+  convertedTask   Task?   @relation(fields: [convertedTaskId], references: [id])
+
+  lineItems EstimateLineItem[]
+  createdAt DateTime           @default(now())
+}
+
+model EstimateLineItem {
+  id          String   @id @default(cuid())
+  estimateId  String
+  estimate    Estimate @relation(fields: [estimateId], references: [id])
+  description String // "Weekly maintenance", "Pump repair", "Chlorine (5 gal)"
+  quantity    Decimal  @default(1)
+  unitPrice   Decimal
+}
+
+// One row per tax applied to an estimate (state, county, etc.). name/rate
+// are snapshotted from TaxRate at the time it's added, so a later rate
+// change doesn't rewrite a signed estimate's numbers.
+model EstimateTax {
+  id         String   @id @default(cuid())
+  estimateId String
+  estimate   Estimate @relation(fields: [estimateId], references: [id])
+  taxRateId  String?
+  taxRate    TaxRate? @relation(fields: [taxRateId], references: [id])
+  name       String // snapshot, e.g. "State Sales Tax"
+  ratePercent Decimal // snapshot, e.g. 6.5
+  amount     Decimal // calculated: subtotal (or taxable portion) * ratePercent
+}
+
