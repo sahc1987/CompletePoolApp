@@ -23,11 +23,16 @@ export default function AssignForm({
   workers,
   services,
   extras,
+  workStart,
+  workEnd,
 }: {
   clients: Client[];
   workers: Worker[];
   services: Service[];
   extras: Extra[];
+  /** Business hours as "HH:MM", used to bound the time picker. */
+  workStart: string;
+  workEnd: string;
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(createTask, null);
   // Success here redirects to the calendar, so in practice this surfaces errors.
@@ -149,8 +154,21 @@ export default function AssignForm({
             <Field label="Date" htmlFor="date" required>
               <input id="date" name="date" type="date" required className={inputClass} />
             </Field>
-            <Field label="Start time" htmlFor="time" required>
-              <input id="time" name="time" type="time" required className={inputClass} />
+            <Field
+              label="Start time"
+              htmlFor="time"
+              required
+              hint={`Open ${workStart}–${workEnd}`}
+            >
+              <input
+                id="time"
+                name="time"
+                type="time"
+                required
+                min={workStart}
+                max={workEnd}
+                className={inputClass}
+              />
             </Field>
             <Field label="Duration (min)" htmlFor="durationMin" required>
               <input

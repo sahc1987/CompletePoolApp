@@ -115,7 +115,7 @@ export default function DaySummary({
             ).toISOString();
             const row = (
               <>
-                <span className="w-32 shrink-0 text-sm font-semibold tabular-nums text-ink">
+                <span className="w-[9.5rem] shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-ink">
                   {time(t.start)}
                   <span className="font-normal text-faint">
                     {" "}

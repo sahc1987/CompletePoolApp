@@ -83,6 +83,12 @@ model User {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  // Employment details. Nullable because existing accounts predate them and
+  // managers/owners aren't necessarily paid hourly.
+  hourlyRate Decimal?  @db.Decimal(10, 2)
+  hiredOn    DateTime? // date only; stored at local midnight
+  birthday   DateTime? // date only; year is kept but only day/month are shown
+
   // Brute-force throttling. Counts consecutive failed sign-ins; once the limit
   // is hit the account is locked until `lockedUntil` and the counter resets, so
   // each lock buys another full round of attempts. Enforced in lib/auth.ts.
@@ -97,6 +103,28 @@ model User {
   paymentsRecorded          Payment[]         @relation("PaymentRecordedBy")
   paymentsReversed          PaymentReversal[] @relation("PaymentReversedBy")
   notifications             Notification[]
+  payRateHistory            PayRateChange[]   @relation("PayRateSubject")
+  payRateChangesMade        PayRateChange[]   @relation("PayRateChangedBy")
+}
+
+// Append-only audit trail for hourly pay. Never updated or deleted, so a rate
+// can always be traced back to who set it and when.
+model PayRateChange {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation("PayRateSubject", fields: [userId], references: [id])
+
+  // Null on the first rate ever set for someone.
+  oldRate Decimal? @db.Decimal(10, 2)
+  newRate Decimal  @db.Decimal(10, 2)
+
+  changedById String
+  changedBy   User   @relation("PayRateChangedBy", fields: [changedById], references: [id])
+  note        String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // In-app notification, one row per recipient. Fanned out to all users when a

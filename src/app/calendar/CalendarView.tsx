@@ -44,6 +44,14 @@ export type CalendarTask = {
 type Worker = { id: string; name: string };
 type Service = { id: string; name: string; basePrice: number; defaultDurationMin: number };
 
+/** "08:00" -> "8 AM", "13:30" -> "1:30 PM". */
+function hourLabel(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const suffix = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${h12} ${suffix}` : `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
+}
+
 // Kept in step with StatusBadge: aqua = in progress, slate = submitted.
 // Amber stays reserved for genuine problems.
 const STATUS_COLOR: Record<TaskStatus, string> = {
@@ -61,15 +69,20 @@ export default function CalendarView({
   initialDate,
   slotMinTime,
   slotMaxTime,
+  workStart,
+  workEnd,
   workers,
   services,
 }: {
   tasks: CalendarTask[];
   role: Role;
   initialDate: string;
-  /** Grid bounds, derived from the configured business hours. */
+  /** Grid bounds — the business hours plus an hour of padding each side. */
   slotMinTime: string;
   slotMaxTime: string;
+  /** The configured business hours themselves, as "HH:MM". */
+  workStart: string;
+  workEnd: string;
   workers: Worker[];
   services: Service[];
 }) {
@@ -88,7 +101,9 @@ export default function CalendarView({
 
   const events = tasks.map((t) => ({
     id: t.id,
-    title: `${t.clientName} — ${t.title}`,
+    // Client only — "Client — Service" was long enough to truncate in a week
+    // column. The service moves to the event's bottom line.
+    title: t.clientName,
     start: t.start,
     end: t.end,
     backgroundColor: STATUS_COLOR[t.status],
@@ -97,6 +112,7 @@ export default function CalendarView({
       address: t.address,
       price: t.price,
       workerName: t.workerName,
+      serviceName: t.title,
       status: t.status,
     },
   }));
@@ -146,13 +162,18 @@ export default function CalendarView({
     <>
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-ink">
+          <h1 className="text-2xl font-bold leading-tight text-ink">
             {role === "WORKER" ? "My schedule" : "Job "}
             {role !== "WORKER" && <span className="accent">calendar</span>}
           </h1>
           {isAdmin && (
             <p className="mt-0.5 text-sm text-muted">
-              Click a job to edit its time, service, or worker · drag to reschedule
+              Click a job to edit its time, service, or worker · drag to
+              reschedule · open{" "}
+              <span className="font-medium text-ink">
+                {hourLabel(workStart)}–{hourLabel(workEnd)}
+              </span>{" "}
+              (shaded hours are closed)
             </p>
           )}
         </div>
@@ -177,7 +198,7 @@ export default function CalendarView({
         </div>
       </div>
 
-      <div className="rounded-2xl border border-line/80 bg-white p-3 shadow-card">
+      <div className="calendar-shell rounded-2xl border border-line/80 bg-white p-3 shadow-card sm:p-4">
         <FullCalendar
           ref={calendarRef}
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -185,8 +206,20 @@ export default function CalendarView({
           initialDate={initialDate}
           headerToolbar={{ left: "prev,next today", center: "title", right: "" }}
           height="auto"
+          // Every job is timed, so the all-day strip was permanently empty.
+          allDaySlot={false}
           slotMinTime={slotMinTime}
           slotMaxTime={slotMaxTime}
+          // Shades hours outside the configured workday, so the padding above
+          // and below open hours reads as closed rather than bookable.
+          businessHours={{
+            daysOfWeek: [0, 1, 2, 3, 4, 5, 6],
+            startTime: workStart,
+            endTime: workEnd,
+          }}
+          // Refuse the drag/resize outright instead of letting it land and
+          // bouncing back from the server. The server still re-checks.
+          eventConstraint="businessHours"
           // Keep the summary in step with whatever range the grid moves to.
           datesSet={() => {
             const api = calendarRef.current?.getApi();
@@ -200,19 +233,38 @@ export default function CalendarView({
           eventDrop={onEventChange}
           eventResize={onEventChange}
           eventContent={(arg) => {
-            const { address, price, workerName } = arg.event.extendedProps as {
+            const { address, price, workerName, serviceName } = arg.event
+              .extendedProps as {
               address: string;
               price: number | null;
               workerName: string;
+              serviceName: string;
             };
+            const start = arg.event.start;
             return (
-              <div className="px-1 py-0.5 text-xs leading-tight">
-                <div className="font-semibold">{arg.event.title}</div>
-                <div className="opacity-90">{address}</div>
-                {role !== "WORKER" && price !== null && (
-                  <div className="opacity-90">${price}</div>
-                )}
-                {role !== "WORKER" && <div className="opacity-75">{workerName}</div>}
+              // Deliberate hierarchy: time and client read first, the address is
+              // secondary, and worker/price sit quietest at the bottom. The old
+              // version gave all four lines near-equal weight.
+              <div className="flex h-full min-w-0 flex-col gap-[1px] overflow-hidden px-1.5 py-1 leading-tight">
+                <div className="flex items-baseline gap-1.5">
+                  {start && (
+                    <span className="shrink-0 text-[10px] font-bold tabular-nums opacity-80">
+                      {start.toLocaleTimeString("en-US", {
+                        hour: "numeric",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                  )}
+                  <span className="truncate text-[11.5px] font-semibold tracking-[-0.01em]">
+                    {arg.event.title}
+                  </span>
+                </div>
+                <span className="truncate text-[10.5px] opacity-85">{address}</span>
+                <span className="mt-auto truncate text-[10px] font-medium opacity-75">
+                  {serviceName}
+                  {role !== "WORKER" && ` · ${workerName}`}
+                  {role !== "WORKER" && price !== null && ` · $${price}`}
+                </span>
               </div>
             );
           }}
@@ -231,6 +283,8 @@ export default function CalendarView({
           task={editing}
           workers={workers}
           services={services}
+          workStart={workStart}
+          workEnd={workEnd}
           onClose={() => setEditingId(null)}
         />
       )}

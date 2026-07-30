@@ -102,6 +102,8 @@ export default async function CalendarPage() {
         initialDate={initialDate}
         slotMinTime={slotMinTime}
         slotMaxTime={slotMaxTime}
+        workStart={minToHHMM(hours.startMin)}
+        workEnd={minToHHMM(hours.endMin)}
         workers={workers}
         services={services.map((s) => ({
           id: s.id,

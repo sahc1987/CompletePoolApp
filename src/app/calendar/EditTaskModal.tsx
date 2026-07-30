@@ -39,11 +39,16 @@ export default function EditTaskModal({
   task,
   workers,
   services,
+  workStart,
+  workEnd,
   onClose,
 }: {
   task: CalendarTask;
   workers: Worker[];
   services: Service[];
+  /** Business hours as "HH:MM", used to bound the time picker. */
+  workStart: string;
+  workEnd: string;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -207,7 +212,19 @@ export default function EditTaskModal({
 
             <div>
               <label className={labelClass} htmlFor="edit-time">Start time</label>
-              <input id="edit-time" name="time" type="time" required defaultValue={time} className={inputClass} />
+              <input
+                id="edit-time"
+                name="time"
+                type="time"
+                required
+                min={workStart}
+                max={workEnd}
+                defaultValue={time}
+                className={inputClass}
+              />
+              <p className="mt-1 text-[11px] text-faint">
+                Open {workStart}–{workEnd}
+              </p>
             </div>
 
             <div>

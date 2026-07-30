@@ -10,6 +10,12 @@
 
 body {
   @apply text-ink;
+  /* Crisper stems on the light background — Inter reads noticeably heavier and
+     muddier without this on macOS/iOS. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Inter's contextual alternates + real ligatures. */
+  font-feature-settings: "liga" 1, "calt" 1;
   /* Blue-to-teal gradient wash echoing the reference hero: a cool teal glow
      top-right, a soft blue bottom-left, over the near-white app surface. */
   background:
@@ -39,6 +45,159 @@ html {
 input[type="checkbox"],
 input[type="radio"] {
   accent-color: #0e7490;
+}
+
+/* ---------------------------------------------------------------------
+   Calendar theme.
+
+   FullCalendar ships its own default look — square slate buttons, a yellow
+   "today" wash, hairline grey rules — which sat oddly next to the app's cards
+   and brand palette. Everything below is scoped to .calendar-shell and prefers
+   FullCalendar v6's CSS custom properties over selector overrides where it
+   exposes them.
+   ------------------------------------------------------------------- */
+.calendar-shell {
+  --fc-border-color: #e6ecf5;
+  --fc-page-bg-color: #ffffff;
+  --fc-neutral-bg-color: #f8fafd;
+  /* Default is a yellow tint; brand blue instead. */
+  --fc-today-bg-color: rgba(233, 241, 255, 0.6);
+  /* Closed hours: a faint cool grey, readable as "unavailable" not "broken". */
+  --fc-non-business-color: rgba(219, 227, 238, 0.4);
+  --fc-now-indicator-color: #0e7490;
+  --fc-event-border-color: transparent;
+
+  /* Toolbar buttons become quiet white pills like the rest of the app. */
+  --fc-button-text-color: #1a2333;
+  --fc-button-bg-color: #ffffff;
+  --fc-button-border-color: #dbe3ee;
+  --fc-button-hover-bg-color: #e9f1ff;
+  --fc-button-hover-border-color: #8fb2f5;
+  --fc-button-active-bg-color: #1a56db;
+  --fc-button-active-border-color: #1a56db;
+}
+
+.calendar-shell .fc {
+  font-size: 0.875rem;
+}
+
+/* Toolbar ------------------------------------------------------------- */
+.calendar-shell .fc-toolbar.fc-header-toolbar {
+  margin-bottom: 0.9rem;
+  gap: 0.75rem;
+}
+.calendar-shell .fc-toolbar-title {
+  font-size: 1.0625rem;
+  font-weight: 700;
+  letter-spacing: -0.012em;
+  color: #1a2333;
+}
+.calendar-shell .fc .fc-button {
+  border-radius: 9999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-transform: none;
+  box-shadow: 0 1px 1px rgba(11, 42, 99, 0.04);
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+/* FC keeps the light text colour on a pressed button, which is invisible on
+   the blue active fill. */
+.calendar-shell .fc .fc-button-active,
+.calendar-shell .fc .fc-button:active {
+  color: #ffffff;
+}
+.calendar-shell .fc .fc-button:focus {
+  box-shadow: none;
+}
+.calendar-shell .fc .fc-button-group > .fc-button:not(:first-child) {
+  margin-left: 0.25rem;
+}
+
+/* Column headers ------------------------------------------------------ */
+.calendar-shell .fc .fc-col-header-cell {
+  background: #f8fafd;
+  padding: 0.3rem 0;
+}
+.calendar-shell .fc .fc-col-header-cell-cushion {
+  display: inline-block;
+  padding: 0.45rem 0.3rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #63708c;
+  text-decoration: none;
+}
+.calendar-shell .fc .fc-day-today .fc-col-header-cell-cushion {
+  color: #1a56db;
+}
+
+/* Time axis ----------------------------------------------------------- */
+.calendar-shell .fc .fc-timegrid-slot {
+  height: 2.35rem; /* default rows are cramped for two-line events */
+}
+.calendar-shell .fc .fc-timegrid-slot-label-cushion {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #63708c;
+  font-variant-numeric: tabular-nums;
+}
+.calendar-shell .fc .fc-timegrid-axis-cushion {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #63708c;
+}
+/* Half-hour rules recede so the hour lines carry the structure. */
+.calendar-shell .fc .fc-timegrid-slot-minor {
+  border-top-style: dotted;
+  border-top-color: #eef2f8;
+}
+
+/* Events -------------------------------------------------------------- */
+.calendar-shell .fc .fc-timegrid-event,
+.calendar-shell .fc .fc-daygrid-event {
+  border: none;
+  border-radius: 0.55rem;
+  box-shadow: 0 1px 2px rgba(11, 42, 99, 0.14);
+  padding: 0;
+}
+.calendar-shell .fc .fc-timegrid-event .fc-event-main {
+  padding: 0.15rem 0.1rem;
+}
+.calendar-shell .fc .fc-event {
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+.calendar-shell .fc .fc-event:focus-visible {
+  outline-offset: 1px;
+}
+.calendar-shell .fc .fc-event-dragging,
+.calendar-shell .fc .fc-event-resizing {
+  box-shadow: 0 8px 24px rgba(11, 42, 99, 0.28);
+}
+
+/* Now indicator ------------------------------------------------------- */
+.calendar-shell .fc .fc-timegrid-now-indicator-line {
+  border-top-width: 2px;
+}
+.calendar-shell .fc .fc-timegrid-now-indicator-arrow {
+  border-width: 5px;
+}
+
+/* Frame --------------------------------------------------------------- */
+.calendar-shell .fc .fc-scrollgrid {
+  border-radius: 0.85rem;
+  overflow: hidden;
+}
+/* The surrounding card already draws an edge. */
+.calendar-shell .fc .fc-scrollgrid,
+.calendar-shell .fc .fc-scrollgrid-section > td {
+  border-left-width: 0;
+  border-right-width: 0;
 }
 
 /* Utility helpers layered on top of Tailwind. */

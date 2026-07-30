@@ -1,7 +1,9 @@
+import Link from "next/link";
 import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { toNumber } from "@/lib/serialize";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import DeleteButton from "@/components/DeleteButton";
@@ -113,8 +115,17 @@ export default async function UsersPage() {
             <div className="mt-3 flex items-center justify-between gap-2 border-t border-line/60 pt-3">
               <span className="text-[12px] text-faint">
                 {u._count.tasksAssigned || 0} job{u._count.tasksAssigned === 1 ? "" : "s"}
+                {u.hourlyRate !== null && (
+                  <> · ${toNumber(u.hourlyRate)?.toFixed(2)}/hr</>
+                )}
               </span>
               <div className="flex items-center gap-1">
+                <Link
+                  href={`/users/${u.id}`}
+                  className="whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] font-semibold text-navy-700 transition hover:bg-chrome-100"
+                >
+                  Details
+                </Link>
                 <ResetPasswordForm userId={u.id} name={u.name} />
                 {locked ? (
                   <span className="whitespace-nowrap px-2.5 py-1.5 text-[13px] font-medium text-faint">
@@ -151,6 +162,7 @@ export default async function UsersPage() {
               <th className="px-5 py-3 text-left font-semibold">Person</th>
               <th className="px-5 py-3 text-left font-semibold">Privileges</th>
               <th className="px-5 py-3 text-left font-semibold">Status</th>
+              <th className="px-5 py-3 text-right font-semibold">Pay</th>
               <th className="px-5 py-3 text-right font-semibold">Jobs</th>
               <th className="px-5 py-3 text-right font-semibold" />
             </tr>
@@ -206,11 +218,30 @@ export default async function UsersPage() {
                   </td>
 
                   <td className="hidden px-5 py-4 text-right tabular-nums text-muted sm:table-cell">
+                    {u.hourlyRate === null ? (
+                      "—"
+                    ) : (
+                      <>
+                        <span className="font-semibold text-ink">
+                          ${toNumber(u.hourlyRate)?.toFixed(2)}
+                        </span>
+                        <span className="text-faint">/hr</span>
+                      </>
+                    )}
+                  </td>
+
+                  <td className="hidden px-5 py-4 text-right tabular-nums text-muted sm:table-cell">
                     {u._count.tasksAssigned || "—"}
                   </td>
 
                   <td className="px-4 py-4 sm:px-5">
                     <div className="flex items-center justify-end gap-1">
+                      <Link
+                        href={`/users/${u.id}`}
+                        className="whitespace-nowrap rounded-full px-2.5 py-1.5 text-[13px] font-semibold text-navy-700 transition hover:bg-chrome-100"
+                      >
+                        Details
+                      </Link>
                       <ResetPasswordForm userId={u.id} name={u.name} />
                       {locked ? (
                         <span

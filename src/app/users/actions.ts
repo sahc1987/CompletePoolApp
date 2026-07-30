@@ -22,6 +22,83 @@ async function otherActiveManagersExist(excludeUserId: string) {
   return n > 0;
 }
 
+// Optional "YYYY-MM-DD" -> local-midnight Date, or null when blank. Parsed from
+// local parts so the stored day matches what was typed (a bare ISO string is
+// UTC and lands on the previous day west of Greenwich).
+const optionalDate = (label: string) =>
+  z
+    .string()
+    .trim()
+    .refine((v) => v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v), {
+      message: `${label} must be a valid date`,
+    })
+    .transform((v) => (v === "" ? null : new Date(`${v}T00:00:00`)));
+
+const employmentSchema = z.object({
+  userId: z.string().min(1),
+  hourlyRate: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || Number(v) >= 0, {
+      message: "Hourly pay can't be negative",
+    })
+    .refine((v) => v === "" || !Number.isNaN(Number(v)), {
+      message: "Hourly pay must be a number",
+    })
+    .transform((v) => (v === "" ? null : Math.round(Number(v) * 100) / 100)),
+  hiredOn: optionalDate("Hire date"),
+  birthday: optionalDate("Birthday"),
+  note: z.string().trim().max(200).optional(),
+});
+
+/**
+ * Save employment details. A changed hourly rate also appends a
+ * PayRateChange row — the rate field alone can't answer "what did we pay
+ * them in March", so the history is the point, not a nicety.
+ */
+export async function saveEmployment(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole(...MANAGERS);
+  const parsed = employmentSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) return { error: parsed.error.errors[0].message };
+  const { userId, hourlyRate, hiredOn, birthday, note } = parsed.data;
+
+  const before = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { hourlyRate: true },
+  });
+  if (!before) return { error: "User not found" };
+
+  const oldRate = before.hourlyRate === null ? null : Number(before.hourlyRate);
+  const rateChanged = oldRate !== hourlyRate;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: userId },
+      data: { hourlyRate, hiredOn, birthday },
+    });
+
+    // Only a real rate is logged; clearing the field isn't a pay change.
+    if (rateChanged && hourlyRate !== null) {
+      await tx.payRateChange.create({
+        data: {
+          userId,
+          oldRate,
+          newRate: hourlyRate,
+          changedById: actor.id,
+          note: note || null,
+        },
+      });
+    }
+  });
+
+  revalidatePath("/users");
+  revalidatePath(`/users/${userId}`);
+  return { ok: true };
+}
+
 const roleSchema = z.object({
   userId: z.string().min(1),
   role: z.nativeEnum(Role),

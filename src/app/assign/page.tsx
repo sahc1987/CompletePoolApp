@@ -8,6 +8,7 @@ import PageHeader from "@/components/PageHeader";
 import ActionForm from "@/components/ActionForm";
 import { card } from "@/components/styles";
 import { toNumber } from "@/lib/serialize";
+import { getWorkHours, minToHHMM } from "@/lib/schedule";
 import AssignForm from "./AssignForm";
 import { runRecurrenceExpansion } from "./actions";
 
@@ -15,7 +16,7 @@ export default async function AssignPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/login");
 
-  const [clients, workers, services, extras] = await Promise.all([
+  const [clients, workers, services, extras, hours] = await Promise.all([
     prisma.client.findMany({
       orderBy: { name: "asc" },
       include: { pools: { orderBy: { address: "asc" }, select: { id: true, address: true } } },
@@ -27,6 +28,7 @@ export default async function AssignPage() {
     }),
     prisma.service.findMany({ orderBy: { name: "asc" } }),
     prisma.extraService.findMany({ orderBy: { name: "asc" } }),
+    getWorkHours(),
   ]);
 
   const hasClientsWithPools = clients.some((c) => c.pools.length > 0);
@@ -74,6 +76,8 @@ export default async function AssignPage() {
               name: e.name,
               price: toNumber(e.price) ?? 0,
             }))}
+            workStart={minToHHMM(hours.startMin)}
+            workEnd={minToHHMM(hours.endMin)}
           />
         </div>
       )}
