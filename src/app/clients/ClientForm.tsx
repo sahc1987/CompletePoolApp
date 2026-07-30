@@ -5,6 +5,7 @@ import { createClient, updateClient } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import { useCloseOnSuccess, ModalCancel } from "@/components/Modal";
 import { inputClass, labelClass } from "@/components/styles";
+import AddressAutocomplete from "@/components/AddressAutocomplete";
 import type { ActionState } from "@/lib/actions";
 
 type Client = {
@@ -12,6 +13,7 @@ type Client = {
   name: string;
   phone: string | null;
   email: string | null;
+  address: string | null;
   notes: string | null;
 };
 
@@ -63,6 +65,21 @@ export default function ClientForm({ client }: { client?: Client }) {
             className={inputClass}
           />
         </div>
+      </div>
+
+      <div>
+        <label className={labelClass} htmlFor="address">
+          Address
+        </label>
+        <AddressAutocomplete
+          id="address"
+          name="address"
+          defaultValue={client?.address ?? ""}
+          placeholder="Start typing an address…"
+        />
+        <p className="mt-1.5 text-xs text-faint">
+          Billing or mailing address. Each pool has its own service address.
+        </p>
       </div>
 
       <div>

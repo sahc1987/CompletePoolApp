@@ -49,6 +49,7 @@ export default async function ClientDetailPage({
               name: client.name,
               phone: client.phone,
               email: client.email,
+              address: client.address,
               notes: client.notes,
             }}
           />

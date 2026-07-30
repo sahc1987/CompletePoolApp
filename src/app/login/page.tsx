@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { inputClass, labelClass } from "@/components/styles";
+import { getLoginFeedback } from "./actions";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -11,9 +12,27 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Seconds left on a lockout. The server is the real gate; this only keeps the
+  // form from inviting attempts that are guaranteed to fail.
+  const [lockedFor, setLockedFor] = useState(0);
+
+  // Tick the lockout down to zero.
+  useEffect(() => {
+    if (lockedFor <= 0) return;
+    const t = setTimeout(() => {
+      setLockedFor((s) => s - 1);
+      // Drop the lockout message as the window closes, so it isn't left on
+      // screen claiming a wait that has already elapsed.
+      if (lockedFor === 1) setError(null);
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [lockedFor]);
+
+  const locked = lockedFor > 0;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (locked || loading) return;
     setError(null);
     setLoading(true);
 
@@ -23,13 +42,31 @@ export default function LoginPage() {
       redirect: false,
     });
 
-    setLoading(false);
-
     if (result?.error) {
-      setError("Email or password is wrong.");
+      // NextAuth collapses every failure into one opaque error, so ask the
+      // server whether this was a bad password or an active lockout.
+      const fb = await getLoginFeedback(email);
+      setLoading(false);
+
+      if (fb.lockedSeconds > 0) {
+        setLockedFor(fb.lockedSeconds);
+        setPassword("");
+        setError(
+          `Too many failed attempts. Try again in ${fb.lockedSeconds} seconds.`
+        );
+      } else if (fb.attemptsLeft > 0) {
+        setError(
+          `Email or password is wrong. ${fb.attemptsLeft} ${
+            fb.attemptsLeft === 1 ? "attempt" : "attempts"
+          } left before your account is locked for 30 seconds.`
+        );
+      } else {
+        setError("Email or password is wrong.");
+      }
       return;
     }
 
+    setLoading(false);
     router.push("/calendar");
     router.refresh();
   }
@@ -115,18 +152,32 @@ export default function LoginPage() {
               />
             </div>
 
-            {error && (
-              <p role="alert" className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger">
-                {error}
+            {/* While locked, the live countdown replaces the stored message so
+                the number on screen stays truthful. */}
+            {(locked || error) && (
+              <p
+                role="alert"
+                aria-live="polite"
+                className="rounded-lg bg-danger/10 px-3 py-2 text-sm text-danger"
+              >
+                {locked
+                  ? `Too many failed attempts. Try again in ${lockedFor} second${
+                      lockedFor === 1 ? "" : "s"
+                    }.`
+                  : error}
               </p>
             )}
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || locked}
               className="w-full rounded-full bg-gradient-to-b from-teal-700 to-teal-800 py-3 font-bold text-white shadow-sm transition hover:from-teal-800 hover:to-teal-900 hover:shadow-md active:scale-[.99] disabled:opacity-60"
             >
-              {loading ? "Signing in…" : "Sign in"}
+              {locked
+                ? `Locked — ${lockedFor}s`
+                : loading
+                  ? "Signing in…"
+                  : "Sign in"}
             </button>
           </form>
         </div>

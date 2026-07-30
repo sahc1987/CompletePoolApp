@@ -83,6 +83,12 @@ model User {
   active       Boolean  @default(true)
   createdAt    DateTime @default(now())
 
+  // Brute-force throttling. Counts consecutive failed sign-ins; once the limit
+  // is hit the account is locked until `lockedUntil` and the counter resets, so
+  // each lock buys another full round of attempts. Enforced in lib/auth.ts.
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+
   tasksAssigned Task[] @relation("AssignedWorker")
   tasksApproved Task[] @relation("ApprovedBy")
   materialRequestsMade      MaterialRequest[] @relation("RequestedBy")
@@ -109,10 +115,13 @@ model Notification {
 }
 
 model Client {
-  id        String   @id @default(cuid())
-  name      String
-  phone     String?
-  email     String?
+  id    String  @id @default(cuid())
+  name  String
+  phone String?
+  email String?
+  // The client's own (billing/mailing) address. Distinct from Pool.address,
+  // which is the service location — a client may be billed somewhere else.
+  address   String?
   notes     String?
   createdAt DateTime @default(now())
 

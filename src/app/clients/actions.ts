@@ -11,6 +11,7 @@ const clientSchema = z.object({
   name: z.string().trim().min(1, "Name is required"),
   phone: z.string().trim().optional(),
   email: z.string().trim().email("That email doesn't look right").or(z.literal("")).optional(),
+  address: z.string().trim().optional(),
   notes: z.string().trim().optional(),
 });
 
@@ -27,13 +28,14 @@ export async function createClient(
   await requireRole("ADMIN");
   const parsed = clientSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { name, phone, email, notes } = parsed.data;
+  const { name, phone, email, address, notes } = parsed.data;
 
   const client = await prisma.client.create({
     data: {
       name,
       phone: phone || null,
       email: email || null,
+      address: address || null,
       notes: notes || null,
     },
   });
@@ -50,7 +52,7 @@ export async function updateClient(
   if (!id) return { error: "Missing client id" };
   const parsed = clientSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { name, phone, email, notes } = parsed.data;
+  const { name, phone, email, address, notes } = parsed.data;
 
   await prisma.client.update({
     where: { id },
@@ -58,6 +60,7 @@ export async function updateClient(
       name,
       phone: phone || null,
       email: email || null,
+      address: address || null,
       notes: notes || null,
     },
   });
