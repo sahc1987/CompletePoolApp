@@ -8,10 +8,17 @@ import PageHeader from "@/components/PageHeader";
 import { Icon } from "@/components/icons";
 import { card } from "@/components/styles";
 import { money, toNumber } from "@/lib/serialize";
-import { backfillBills, backfillLegacyPayments, paidAmount } from "@/lib/billing";
+import {
+  backfillBills,
+  backfillLegacyPayments,
+  paidAmount,
+  invoiceNumber,
+  receiptNumber,
+} from "@/lib/billing";
 import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
 import UndoForm from "./UndoForm";
+import { InvoiceButton, type InvoiceData, type ReceiptData } from "./BillingPdf";
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: "Cash",
@@ -123,6 +130,9 @@ export default async function BillingPage({
         include: {
           client: { select: { id: true, name: true } },
           service: { select: { name: true } },
+          // Invoice line items: the service plus each add-on at its sold price.
+          pool: { select: { address: true } },
+          extras: { include: { extraService: { select: { name: true } } } },
         },
       },
     },
@@ -133,7 +143,55 @@ export default async function BillingPage({
   const rows = bills.map((b) => {
     const amount = toNumber(b.amount) ?? 0;
     const paid = paidAmount(b.payments);
-    return { bill: b, amount, paid, balance: Math.round((amount - paid) * 100) / 100 };
+    const balance = Math.round((amount - paid) * 100) / 100;
+
+    // The job's own price, with each add-on itemised beneath it.
+    const extras = b.task.extras.map((e) => ({
+      description: e.extraService.name,
+      amount: toNumber(e.priceAtTimeOfSale) ?? 0,
+    }));
+    const base =
+      Math.round((amount - extras.reduce((s, e) => s + e.amount, 0)) * 100) / 100;
+
+    const invoice: InvoiceData = {
+      invoiceNo: invoiceNumber(b.invoiceNo),
+      issuedAt: fmtDate(b.createdAt),
+      clientName: b.task.client.name,
+      address: b.task.pool.address,
+      jobDate: fmtDate(b.task.date),
+      serviceName: b.task.service.name,
+      lineItems: [{ description: b.task.service.name, amount: base }, ...extras],
+      total: amount,
+      paid,
+      balance,
+      status: b.status,
+    };
+
+    // Receipts show the balance *after* their own payment, so walk the
+    // payments in order and carry a running total.
+    let running = 0;
+    const receipts: ReceiptData[] = b.payments.map((p) => {
+      const amt = toNumber(p.amount) ?? 0;
+      running = Math.round((running + amt) * 100) / 100;
+      return {
+        receiptNo: receiptNumber(p.receiptNo),
+        invoiceNo: invoiceNumber(b.invoiceNo),
+        paidAt: fmtDate(p.paidAt),
+        clientName: b.task.client.name,
+        address: b.task.pool.address,
+        serviceName: b.task.service.name,
+        jobDate: fmtDate(b.task.date),
+        amount: amt,
+        method: METHOD_LABEL[p.method] ?? p.method,
+        checkNumber: p.checkNumber,
+        balanceAfter: Math.round((amount - running) * 100) / 100,
+        invoiceTotal: amount,
+        recordedBy: p.recordedBy?.name ?? null,
+        note: p.note,
+      };
+    });
+
+    return { bill: b, amount, paid, balance, invoice, receipts };
   });
 
   const filter =
@@ -312,7 +370,7 @@ export default async function BillingPage({
         {/* Mobile: one card per bill — the whole row is visible without any
             sideways scrolling, and the actions sit at the bottom. */}
         <div className="space-y-3 sm:hidden">
-          {visible.map(({ bill: b, amount, paid, balance }) => {
+          {visible.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
             const last = b.payments[b.payments.length - 1];
             return (
               <div
@@ -362,12 +420,14 @@ export default async function BillingPage({
                 )}
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <InvoiceButton data={invoice} />
                   {(b.payments.length > 0 || b.reversals.length > 0) && (
                     <PaymentsButton
                       clientName={b.task.client.name}
                       total={amount}
                       paid={paid}
                       balance={balance}
+                      receipts={receipts}
                       {...historyProps(b)}
                     />
                   )}
@@ -399,7 +459,7 @@ export default async function BillingPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-line/60">
-              {visible.map(({ bill: b, amount, paid, balance }) => {
+              {visible.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
                 const pct = amount > 0 ? Math.min(100, Math.round((paid / amount) * 100)) : 0;
                 const last = b.payments[b.payments.length - 1];
                 return (
@@ -435,6 +495,7 @@ export default async function BillingPage({
                             total={amount}
                             paid={paid}
                             balance={balance}
+                            receipts={receipts}
                             {...historyProps(b)}
                           />
                         </div>
@@ -475,6 +536,7 @@ export default async function BillingPage({
                     <td className="px-3 py-4 text-right sm:px-5">
                       {isAdmin ? (
                         <div className="flex items-center justify-end gap-1.5">
+                          <InvoiceButton data={invoice} />
                           {balance > 0 && (
                             <PayForm
                               billId={b.id}
@@ -487,9 +549,14 @@ export default async function BillingPage({
                           )}
                         </div>
                       ) : (
-                        <span className="text-faint">
-                          {b.status[0] + b.status.slice(1).toLowerCase()}
-                        </span>
+                        // Owner is read-only here, but the invoice is a
+                        // document, not a mutation.
+                        <div className="flex items-center justify-end gap-1.5">
+                          <InvoiceButton data={invoice} />
+                          <span className="text-faint">
+                            {b.status[0] + b.status.slice(1).toLowerCase()}
+                          </span>
+                        </div>
                       )}
                     </td>
                   </tr>

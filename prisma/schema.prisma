@@ -253,9 +253,12 @@ model Task {
 // A bill for a finished (APPROVED) job. Amount snapshots the service price +
 // extras + materials at approval time. Paid in cash, check, or online.
 model Bill {
-  id        String         @id @default(cuid())
-  taskId    String         @unique
-  task      Task           @relation(fields: [taskId], references: [id])
+  id     String @id @default(cuid())
+  // Sequential, human-readable document number for the invoice. Separate from
+  // the cuid so customers get "INV-000042" rather than an opaque id.
+  invoiceNo Int    @unique @default(autoincrement())
+  taskId    String @unique
+  task      Task   @relation(fields: [taskId], references: [id])
   amount    Decimal // total owed for the job
   status    PaymentStatus  @default(PENDING)
   method    PaymentMethod? // method of the most recent payment (display convenience)
@@ -288,7 +291,9 @@ model PaymentReversal {
 // One money-in event against a bill. A bill can take several (partial)
 // payments, so the outstanding balance is amount - sum(payments.amount).
 model Payment {
-  id             String        @id @default(cuid())
+  id String @id @default(cuid())
+  // Sequential document number for the receipt issued for this payment.
+  receiptNo      Int           @unique @default(autoincrement())
   billId         String
   bill           Bill          @relation(fields: [billId], references: [id])
   amount         Decimal

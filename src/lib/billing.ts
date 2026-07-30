@@ -3,6 +3,10 @@ import { prisma } from "./prisma";
 import { toNumber } from "./serialize";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+// Customer-facing document numbers, padded so they sort and read consistently.
+export const invoiceNumber = (n: number) => `INV-${String(n).padStart(6, "0")}`;
+export const receiptNumber = (n: number) => `RCP-${String(n).padStart(6, "0")}`;
 // Money comparisons need a cent of slack so float math doesn't leave a bill
 // stuck at "partial" over a rounding crumb.
 const EPS = 0.005;

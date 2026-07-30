@@ -2,6 +2,7 @@
 
 import { ModalButton } from "@/components/Modal";
 import { money } from "@/lib/serialize";
+import { ReceiptButton, type ReceiptData } from "./BillingPdf";
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: "Cash",
@@ -52,6 +53,7 @@ export default function PaymentsButton({
   paid,
   balance,
   payments,
+  receipts = [],
   reversals = [],
 }: {
   clientName: string;
@@ -59,6 +61,8 @@ export default function PaymentsButton({
   paid: number;
   balance: number;
   payments: PaymentRow[];
+  /** Receipt payload per payment, in the same order. */
+  receipts?: ReceiptData[];
   reversals?: ReversalRow[];
 }) {
   const count = payments.length;
@@ -123,8 +127,16 @@ export default function PaymentsButton({
                     <div className="mt-1 text-[12px] italic text-muted">“{p.note}”</div>
                   )}
                 </div>
-                <div className="shrink-0 font-bold tabular-nums text-good">
-                  {money(p.amount)}
+                <div className="flex shrink-0 flex-col items-end gap-1">
+                  <div className="font-bold tabular-nums text-good">
+                    {money(p.amount)}
+                  </div>
+                  {receipts[i] && (
+                    <ReceiptButton
+                      data={receipts[i]}
+                      className="rounded-full px-2 py-0.5 text-[12px] font-semibold text-navy-700 transition hover:bg-chrome-100 disabled:opacity-60"
+                    />
+                  )}
                 </div>
               </li>
             ))}
