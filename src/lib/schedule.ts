@@ -1,4 +1,32 @@
 import { prisma } from "./prisma";
+import {
+  BUSINESS_TZ,
+  minutesIntoZonedDay,
+  zonedDayStart,
+  addZonedDays,
+} from "./timezone";
+
+/** Zones offered in Settings. Curated — the full IANA list is ~400 entries. */
+export const TIMEZONE_OPTIONS = [
+  { value: "America/New_York", label: "Eastern — New York" },
+  { value: "America/Chicago", label: "Central — Chicago" },
+  { value: "America/Denver", label: "Mountain — Denver" },
+  { value: "America/Phoenix", label: "Mountain (no DST) — Phoenix" },
+  { value: "America/Los_Angeles", label: "Pacific — Los Angeles" },
+  { value: "America/Anchorage", label: "Alaska — Anchorage" },
+  { value: "Pacific/Honolulu", label: "Hawaii — Honolulu" },
+  { value: "America/Toronto", label: "Eastern — Toronto" },
+  { value: "America/Vancouver", label: "Pacific — Vancouver" },
+] as const;
+
+export function isValidTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // Business hours and double-booking rules live here so every entry point that
 // creates or moves a job (assign form, calendar editor, drag-and-drop) enforces
@@ -7,7 +35,12 @@ import { prisma } from "./prisma";
 export const DEFAULT_WORKDAY_START_MIN = 8 * 60; // 08:00
 export const DEFAULT_WORKDAY_END_MIN = 19 * 60; // 19:00
 
-export type WorkHours = { startMin: number; endMin: number };
+export type WorkHours = {
+  startMin: number;
+  endMin: number;
+  /** IANA zone the hours are expressed in. */
+  timezone: string;
+};
 
 /** Minutes from local midnight -> "HH:MM" for time inputs and messages. */
 export function minToHHMM(min: number): string {
@@ -35,17 +68,22 @@ export function minToLabel(min: number): string {
   return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
 }
 
-/** Configured workday, falling back to the defaults when unset. */
+/** Configured workday and timezone, falling back to the defaults when unset. */
 export async function getWorkHours(): Promise<WorkHours> {
   const row = await prisma.appSettings.findUnique({ where: { id: "app" } });
+  const tz = row?.timezone;
   return {
     startMin: row?.workdayStartMin ?? DEFAULT_WORKDAY_START_MIN,
     endMin: row?.workdayEndMin ?? DEFAULT_WORKDAY_END_MIN,
+    // Guard against a stored value the runtime doesn't know — a bad zone would
+    // otherwise throw from every Intl call downstream.
+    timezone: tz && isValidTimezone(tz) ? tz : BUSINESS_TZ,
   };
 }
 
-function minutesInto(d: Date): number {
-  return d.getHours() * 60 + d.getMinutes();
+/** Just the configured zone, for callers that don't need the hours. */
+export async function getBusinessTimezone(): Promise<string> {
+  return (await getWorkHours()).timezone;
 }
 
 /**
@@ -57,7 +95,8 @@ export function checkWorkHours(
   durationMin: number,
   hours: WorkHours
 ): string | null {
-  const startMin = minutesInto(startTime);
+  // Business-local wall clock, so this is right on a UTC host too.
+  const startMin = minutesIntoZonedDay(startTime, hours.timezone);
   const endMin = startMin + durationMin;
 
   if (startMin < hours.startMin) {
@@ -90,19 +129,18 @@ export async function findWorkerConflict(opts: {
   startTime: Date;
   durationMin: number;
   excludeTaskId?: string;
+  timezone?: string;
 }): Promise<Conflict | null> {
   const { workerId, startTime, durationMin, excludeTaskId } = opts;
+  const tz = opts.timezone ?? BUSINESS_TZ;
 
   const newStart = startTime.getTime();
   const newEnd = newStart + durationMin * 60_000;
 
   // Business hours keep a job inside one day, but widen the fetch by a day on
   // each side so a long job seeded outside those bounds is still caught.
-  const from = new Date(startTime);
-  from.setHours(0, 0, 0, 0);
-  from.setDate(from.getDate() - 1);
-  const to = new Date(from);
-  to.setDate(to.getDate() + 3);
+  const from = addZonedDays(zonedDayStart(startTime, tz), -1, tz);
+  const to = addZonedDays(from, 3, tz);
 
   const candidates = await prisma.task.findMany({
     where: {
@@ -125,8 +163,8 @@ export async function findWorkerConflict(opts: {
     if (s < newEnd && e > newStart) {
       return {
         clientName: c.client.name,
-        startLabel: minToLabel(minutesInto(c.startTime)),
-        endLabel: minToLabel(minutesInto(new Date(e)) % (24 * 60)),
+        startLabel: minToLabel(minutesIntoZonedDay(c.startTime, tz)),
+        endLabel: minToLabel(minutesIntoZonedDay(new Date(e), tz)),
       };
     }
   }

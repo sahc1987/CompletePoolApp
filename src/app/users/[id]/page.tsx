@@ -7,6 +7,7 @@ import AppShell from "@/components/AppShell";
 import { card } from "@/components/styles";
 import { toNumber } from "@/lib/serialize";
 import { weeklyHours, weekLabel, hoursLabel } from "@/lib/payroll";
+import { getBusinessTimezone } from "@/lib/schedule";
 import EmploymentForm from "../EmploymentForm";
 
 function usd(n: number) {
@@ -63,7 +64,13 @@ export default async function TeamMemberPage({
   if (!user) notFound();
 
   const rate = toNumber(user.hourlyRate);
-  const weeks = await weeklyHours(user.id, { weeks: 8, hourlyRate: rate });
+  // Weeks start on the business Monday, not the server's.
+  const timezone = await getBusinessTimezone();
+  const weeks = await weeklyHours(user.id, {
+    weeks: 8,
+    hourlyRate: rate,
+    timezone,
+  });
 
   const totalMinutes = weeks.reduce((s, w) => s + w.minutes, 0);
   const totalPay = weeks.reduce((s, w) => s + (w.pay ?? 0), 0);
@@ -173,7 +180,7 @@ export default async function TeamMemberPage({
               <tbody className="divide-y divide-line/60">
                 {weeks.map((w) => (
                   <tr key={w.weekStart.toISOString()}>
-                    <td className="py-2.5 text-ink">{weekLabel(w.weekStart)}</td>
+                    <td className="py-2.5 text-ink">{weekLabel(w.weekStart, timezone)}</td>
                     <td className="py-2.5 text-right tabular-nums text-muted">
                       {w.jobs || "—"}
                     </td>

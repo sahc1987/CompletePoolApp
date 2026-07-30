@@ -11,11 +11,14 @@ import {
   findWorkerConflict,
   conflictMessage,
 } from "@/lib/schedule";
+import { parseZonedDateTime, zonedDayStart } from "@/lib/timezone";
 import { createBillForTask, recordPayment } from "@/lib/billing";
 import type { ActionState } from "@/lib/actions";
 
-function fmt(d: Date) {
+// Notification text must read in the crews' clock, not the server's.
+function fmt(d: Date, timeZone: string) {
   return d.toLocaleString("en-US", {
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -45,7 +48,10 @@ export async function rescheduleTask(
   });
   if (!existing) return { error: "Task not found" };
 
-  const hoursError = checkWorkHours(start, minutes, await getWorkHours());
+  // `start` arrives as an absolute instant from the browser, so it needs no
+  // parsing — but the checks and the stored day must use the business clock.
+  const hours = await getWorkHours();
+  const hoursError = checkWorkHours(start, minutes, hours);
   if (hoursError) return { error: hoursError };
 
   const clash = await findWorkerConflict({
@@ -53,6 +59,7 @@ export async function rescheduleTask(
     startTime: start,
     durationMin: minutes,
     excludeTaskId: taskId,
+    timezone: hours.timezone,
   });
   if (clash) return { error: conflictMessage(clash) };
 
@@ -60,7 +67,7 @@ export async function rescheduleTask(
     where: { id: taskId },
     data: {
       startTime: start,
-      date: new Date(start.getFullYear(), start.getMonth(), start.getDate()),
+      date: zonedDayStart(start, hours.timezone),
       durationMin: minutes,
     },
     include: { client: { select: { name: true } } },
@@ -70,12 +77,12 @@ export async function rescheduleTask(
   // team-wide view. Unrelated workers are no longer pinged.
   await notifyUser(
     updated.workerId,
-    `Your job for ${updated.client.name} moved to ${fmt(start)}.`,
+    `Your job for ${updated.client.name} moved to ${fmt(start, hours.timezone)}.`,
     { link: "/worker" }
   );
   await notifyRoles(
     ["ADMIN", "OWNER"],
-    `${updated.client.name}'s job was rescheduled to ${fmt(start)}.`,
+    `${updated.client.name}'s job was rescheduled to ${fmt(start, hours.timezone)}.`,
     { link: "/calendar", exceptUserId: actor.id }
   );
   revalidatePath("/calendar");
@@ -113,9 +120,11 @@ export async function editTask(
   });
   if (!before) return { error: "Task not found" };
 
-  const startTime = new Date(`${d.date}T${d.time}:00`);
+  const hours = await getWorkHours();
+  const startTime = parseZonedDateTime(d.date, d.time, hours.timezone);
+  if (!startTime) return { error: "Pick a valid date and start time" };
 
-  const hoursError = checkWorkHours(startTime, d.durationMin, await getWorkHours());
+  const hoursError = checkWorkHours(startTime, d.durationMin, hours);
   if (hoursError) return { error: hoursError };
 
   // Checked against the worker the job is being saved with, which may differ
@@ -125,6 +134,7 @@ export async function editTask(
     startTime,
     durationMin: d.durationMin,
     excludeTaskId: d.taskId,
+    timezone: hours.timezone,
   });
   if (clash) {
     const worker = await prisma.user.findUnique({
@@ -140,7 +150,7 @@ export async function editTask(
       workerId: d.workerId,
       serviceId: d.serviceId,
       startTime,
-      date: new Date(`${d.date}T00:00:00`),
+      date: zonedDayStart(startTime, hours.timezone),
       durationMin: d.durationMin,
       price: d.price,
     },
@@ -154,7 +164,7 @@ export async function editTask(
   // Describe just what actually changed, for a useful notification.
   const changes: string[] = [];
   if (before.startTime.getTime() !== startTime.getTime())
-    changes.push(`moved to ${fmt(startTime)}`);
+    changes.push(`moved to ${fmt(startTime, hours.timezone)}`);
   if (before.service.name !== updated.service.name)
     changes.push(`service → ${updated.service.name}`);
   if (before.worker.name !== updated.worker.name)
@@ -172,16 +182,12 @@ export async function editTask(
       // Both sides of a handover need to know their day changed.
       await notifyUser(
         updated.workerId,
-        `New job assigned: ${updated.service.name} for ${updated.client.name} — ${fmt(
-          startTime
-        )}.`,
+        `New job assigned: ${updated.service.name} for ${updated.client.name} — ${fmt(startTime, hours.timezone)}.`,
         { link: "/worker" }
       );
       await notifyUser(
         before.workerId,
-        `${updated.client.name}'s job on ${fmt(
-          before.startTime
-        )} was reassigned to ${updated.worker.name} and is off your list.`,
+        `${updated.client.name}'s job on ${fmt(before.startTime, hours.timezone)} was reassigned to ${updated.worker.name} and is off your list.`,
         { link: "/worker" }
       );
     } else {

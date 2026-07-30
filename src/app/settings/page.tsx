@@ -102,13 +102,14 @@ export default async function SettingsPage() {
           <div className="mb-3">
             <h2 className="text-lg font-semibold text-ink">Business hours</h2>
             <p className="mt-0.5 text-sm text-muted">
-              The window jobs can be scheduled in, and the hours the calendar
-              shows.
+              The timezone the business runs on, the window jobs can be
+              scheduled in, and the hours the calendar shows.
             </p>
           </div>
           <WorkHoursForm
             start={minToHHMM(hours.startMin)}
             end={minToHHMM(hours.endMin)}
+            timezone={hours.timezone}
           />
         </section>
 

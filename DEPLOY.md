@@ -96,24 +96,26 @@ npx prisma migrate deploy    # apply to Supabase (uses DIRECT_URL)
 Run `migrate deploy` against production yourself, or add it to the Vercel build
 command — never run `migrate dev` against Supabase, it can drop data.
 
-## Timezone — job times depend on it
+## Timezone
 
-Job times are stored by parsing a local `YYYY-MM-DDTHH:MM` string on the server,
-so **the server's clock decides what "9:00 AM" means**. Vercel runs in UTC by
-default, which shifts every job by your UTC offset — a job entered as 11:00 AM
-gets stored as 11:00 UTC and displays as 7:00 AM in Eastern.
+Set it in the app: **Settings → Business hours → Timezone**. It defaults to
+`America/New_York` and is stored in the database, so it survives redeploys and
+needs no environment variable.
 
-Set `TZ` to the crews' timezone in Vercel's environment variables and redeploy.
-The same clock also drives:
+Everything time-related is interpreted against that zone rather than the
+server's clock — job start times, the business-hours check, "today" in the
+notification bell, the Monday boundaries in the weekly hours report, and the
+recurrence expansion. That matters because Vercel runs in UTC: before this was
+pinned, a job entered as 11:00 AM was stored as 11:00 UTC and displayed as
+7:00 AM Eastern.
 
-- the business-hours check (a 9 AM job would be tested against the wrong hour)
-- "today" in the notification bell's day summary
-- the Monday boundaries in the per-week hours report
-- the recurrence cron's idea of the current day
+`BUSINESS_TZ` in the environment only supplies the fallback used before the
+settings row exists; you do not need to set it.
 
-A single `TZ` value is correct as long as all crews work in one timezone. If you
-ever operate across timezones, times need to be converted against an explicit
-business timezone in code instead of relying on the host clock.
+One deliberate exception: the FullCalendar grid renders in the **viewer's**
+browser timezone, because named timezones there need an extra plugin. For anyone
+physically in the business timezone these are the same. The summary under the
+calendar and the edit dialog are always rendered in the business timezone.
 
 ## Notes
 

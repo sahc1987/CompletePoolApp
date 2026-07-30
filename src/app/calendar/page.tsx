@@ -6,6 +6,7 @@ import AppShell from "@/components/AppShell";
 import { toNumber } from "@/lib/serialize";
 import { paidAmount } from "@/lib/billing";
 import { getWorkHours, minToHHMM } from "@/lib/schedule";
+import { zonedDayKey } from "@/lib/timezone";
 import CalendarView, { type CalendarTask } from "./CalendarView";
 
 export default async function CalendarPage() {
@@ -83,14 +84,13 @@ export default async function CalendarPage() {
   // Build the date from local parts. toISOString() is UTC, which lands the
   // calendar on tomorrow every evening once local time crosses UTC midnight
   // (e.g. 8pm EDT = 00:00 UTC) — and disagreed with "Today" on /worker.
-  const today = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const initialDate = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
-
   // Calendar slots follow the configured workday, so the grid matches the hours
   // jobs are actually allowed in. One slot of padding on each side keeps a job
   // at the very edge from being clipped.
   const hours = await getWorkHours();
+
+  // "Today" in the crews' zone, not the server's.
+  const initialDate = zonedDayKey(new Date(), hours.timezone);
   const slotMinTime = `${minToHHMM(Math.max(0, hours.startMin - 60))}:00`;
   const slotMaxTime = `${minToHHMM(Math.min(24 * 60, hours.endMin + 60))}:00`;
 
@@ -104,6 +104,7 @@ export default async function CalendarPage() {
         slotMaxTime={slotMaxTime}
         workStart={minToHHMM(hours.startMin)}
         workEnd={minToHHMM(hours.endMin)}
+        timezone={hours.timezone}
         workers={workers}
         services={services.map((s) => ({
           id: s.id,

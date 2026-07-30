@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
 import { notifyAll } from "@/lib/notify";
-import { hhmmToMin } from "@/lib/schedule";
+import { hhmmToMin, isValidTimezone } from "@/lib/schedule";
 import type { ActionState } from "@/lib/actions";
 
 const decimal = (label: string) =>
@@ -61,17 +61,24 @@ export async function saveWorkHours(
     return { error: "Closing time has to be after opening time." };
   }
 
+  const timezone = String(formData.get("timezone") ?? "").trim();
+  // Rejected here rather than stored: a bad zone would throw from every date
+  // calculation in the app afterwards.
+  if (!timezone || !isValidTimezone(timezone)) {
+    return { error: "Pick a valid timezone." };
+  }
+
   await prisma.appSettings.upsert({
     where: { id: "app" },
-    update: { workdayStartMin: startMin, workdayEndMin: endMin },
-    create: { id: "app", workdayStartMin: startMin, workdayEndMin: endMin },
+    update: { workdayStartMin: startMin, workdayEndMin: endMin, timezone },
+    create: { id: "app", workdayStartMin: startMin, workdayEndMin: endMin, timezone },
   });
 
   // Existing jobs are left alone — narrowing hours doesn't retroactively
   // invalidate work already on the calendar, it only constrains new edits.
-  revalidatePath("/settings");
-  revalidatePath("/calendar");
-  revalidatePath("/assign");
+  // A timezone change does re-interpret how stored instants are displayed,
+  // which is the intent: the whole app moves to the new clock.
+  revalidatePath("/", "layout");
   return { ok: true };
 }
 

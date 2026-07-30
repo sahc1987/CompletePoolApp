@@ -1,39 +1,41 @@
 import { Frequency } from "@prisma/client";
 import { prisma } from "./prisma";
+import { getBusinessTimezone } from "./schedule";
+import {
+  zonedDayStart,
+  addZonedDays,
+  zonedDayKey,
+  zonedDayOfWeek,
+  zonedParts,
+  zonedTimeToUtc,
+} from "./timezone";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-function startOfDay(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x;
-}
-function addDays(d: Date, n: number): Date {
-  return new Date(d.getTime() + n * DAY_MS);
-}
-function dayKey(d: Date): string {
-  return startOfDay(d).toISOString().slice(0, 10);
-}
-function wholeWeeksBetween(a: Date, b: Date): number {
-  return Math.floor((startOfDay(b).getTime() - startOfDay(a).getTime()) / (7 * DAY_MS));
+function wholeWeeksBetween(a: Date, b: Date, tz: string): number {
+  const ms = zonedDayStart(b, tz).getTime() - zonedDayStart(a, tz).getTime();
+  return Math.floor(ms / (7 * DAY_MS));
 }
 
-// Does this rule fire on the given calendar day?
+// Does this rule fire on the given calendar day, read in the business zone?
 function occursOn(
   rule: { frequency: Frequency; daysOfWeek: number[]; startDate: Date },
-  day: Date
+  day: Date,
+  tz: string
 ): boolean {
-  const dow = day.getDay();
   switch (rule.frequency) {
     case "DAILY":
       return true;
     case "WEEKLY":
-      return rule.daysOfWeek.includes(dow);
+      return rule.daysOfWeek.includes(zonedDayOfWeek(day, tz));
     case "BIWEEKLY":
       // Fires on the chosen weekday(s), every other week relative to startDate.
-      return rule.daysOfWeek.includes(dow) && wholeWeeksBetween(rule.startDate, day) % 2 === 0;
+      return (
+        rule.daysOfWeek.includes(zonedDayOfWeek(day, tz)) &&
+        wholeWeeksBetween(rule.startDate, day, tz) % 2 === 0
+      );
     case "MONTHLY":
-      return day.getDate() === rule.startDate.getDate();
+      return zonedParts(day, tz).day === zonedParts(rule.startDate, tz).day;
     default:
       return false;
   }
@@ -44,8 +46,9 @@ function occursOn(
 // rule is skipped, so it's safe to run repeatedly (cron, button, on-create).
 // Each rule copies job details from its earliest task (the template).
 export async function expandRecurrences(windowDays = 30): Promise<number> {
-  const today = startOfDay(new Date());
-  const windowEnd = addDays(today, windowDays);
+  const tz = await getBusinessTimezone();
+  const today = zonedDayStart(new Date(), tz);
+  const windowEnd = addZonedDays(today, windowDays, tz);
 
   const rules = await prisma.recurrenceRule.findMany({
     include: { tasks: { orderBy: { startTime: "asc" } } },
@@ -58,24 +61,36 @@ export async function expandRecurrences(windowDays = 30): Promise<number> {
     if (!template) continue; // no template job to copy from
 
     const ruleEnd =
-      rule.endDate && rule.endDate < windowEnd ? startOfDay(rule.endDate) : windowEnd;
-    const existingDays = new Set(rule.tasks.map((t) => dayKey(t.date)));
+      rule.endDate && rule.endDate < windowEnd
+        ? zonedDayStart(rule.endDate, tz)
+        : windowEnd;
+    const existingDays = new Set(rule.tasks.map((t) => zonedDayKey(t.date, tz)));
 
-    const hours = template.startTime.getHours();
-    const minutes = template.startTime.getMinutes();
+    // The template's time of day, as the crews read it.
+    const tpl = zonedParts(template.startTime, tz);
 
-    let cursor = startOfDay(rule.startDate);
+    let cursor = zonedDayStart(rule.startDate, tz);
     if (cursor < today) cursor = today;
 
     const toCreate: { date: Date; startTime: Date }[] = [];
     while (cursor <= ruleEnd) {
-      if (occursOn(rule, cursor) && !existingDays.has(dayKey(cursor))) {
-        const startTime = new Date(cursor);
-        startTime.setHours(hours, minutes, 0, 0);
-        toCreate.push({ date: startOfDay(cursor), startTime });
-        existingDays.add(dayKey(cursor));
+      const key = zonedDayKey(cursor, tz);
+      if (occursOn(rule, cursor, tz) && !existingDays.has(key)) {
+        const c = zonedParts(cursor, tz);
+        // Rebuilt from wall-clock parts so the job keeps its local start time
+        // across a DST change rather than drifting by an hour.
+        const startTime = zonedTimeToUtc(
+          c.year,
+          c.month,
+          c.day,
+          tpl.hour,
+          tpl.minute,
+          tz
+        );
+        toCreate.push({ date: zonedDayStart(cursor, tz), startTime });
+        existingDays.add(key);
       }
-      cursor = addDays(cursor, 1);
+      cursor = addZonedDays(cursor, 1, tz);
     }
 
     for (const occ of toCreate) {

@@ -13,10 +13,18 @@ import {
   findWorkerConflict,
   conflictMessage,
 } from "@/lib/schedule";
+import {
+  parseZonedDateTime,
+  parseZonedDate,
+  zonedDayStart,
+  zonedDayOfWeek,
+} from "@/lib/timezone";
 import type { ActionState } from "@/lib/actions";
 
-function fmt(d: Date) {
+// Notification text must read in the crews' clock, not the server's.
+function fmt(d: Date, timeZone: string) {
   return d.toLocaleString("en-US", {
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -61,15 +69,20 @@ export async function createTask(
     return { error: "That pool doesn't belong to the selected client." };
   }
 
-  const startTime = new Date(`${d.date}T${d.time}:00`);
+  // Interpreted in the business timezone, not the server's — Vercel runs UTC,
+  // which previously shifted every job by the UTC offset.
+  const hours = await getWorkHours();
+  const startTime = parseZonedDateTime(d.date, d.time, hours.timezone);
+  if (!startTime) return { error: "Pick a valid date and start time" };
 
-  const hoursError = checkWorkHours(startTime, d.durationMin, await getWorkHours());
+  const hoursError = checkWorkHours(startTime, d.durationMin, hours);
   if (hoursError) return { error: hoursError };
 
   const clash = await findWorkerConflict({
     workerId: d.workerId,
     startTime,
     durationMin: d.durationMin,
+    timezone: hours.timezone,
   });
   if (clash) {
     const worker = await prisma.user.findUnique({
@@ -98,14 +111,16 @@ export async function createTask(
       d.repeat === "WEEKLY" || d.repeat === "BIWEEKLY"
         ? selectedDows.length > 0
           ? selectedDows
-          : [new Date(`${d.date}T00:00:00`).getDay()]
+          : [zonedDayOfWeek(startTime, hours.timezone)]
         : [];
     const rule = await prisma.recurrenceRule.create({
       data: {
         frequency: d.repeat,
         daysOfWeek,
-        startDate: new Date(`${d.date}T00:00:00`),
-        endDate: d.repeatEndDate ? new Date(`${d.repeatEndDate}T00:00:00`) : null,
+        startDate: zonedDayStart(startTime, hours.timezone),
+        endDate: d.repeatEndDate
+          ? parseZonedDate(d.repeatEndDate, hours.timezone)
+          : null,
       },
     });
     recurrenceRuleId = rule.id;
@@ -117,7 +132,7 @@ export async function createTask(
       poolId: d.poolId,
       workerId: d.workerId,
       serviceId: d.serviceId,
-      date: new Date(`${d.date}T00:00:00`),
+      date: zonedDayStart(startTime, hours.timezone),
       startTime,
       durationMin: d.durationMin,
       price: d.price,
@@ -143,17 +158,13 @@ export async function createTask(
   const repeats = d.repeat !== "NONE" ? `, repeats ${REPEAT_LABEL[d.repeat]}` : "";
   await notifyUser(
     d.workerId,
-    `New job assigned: ${task.service.name} for ${task.client.name} — ${fmt(
-      task.startTime
-    )} at ${task.pool.address}${repeats}.`,
+    `New job assigned: ${task.service.name} for ${task.client.name} — ${fmt(task.startTime, hours.timezone)} at ${task.pool.address}${repeats}.`,
     { link: "/worker" }
   );
   // Managers track team workload; the assigning admin already knows.
   await notifyRoles(
     ["ADMIN", "OWNER"],
-    `${task.worker.name} was assigned ${task.client.name}'s job on ${fmt(
-      task.startTime
-    )}${repeats}.`,
+    `${task.worker.name} was assigned ${task.client.name}'s job on ${fmt(task.startTime, hours.timezone)}${repeats}.`,
     { link: "/calendar", exceptUserId: actor.id }
   );
 

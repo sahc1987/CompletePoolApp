@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getBusinessTimezone } from "@/lib/schedule";
+import { zonedDayStart, addZonedDays } from "@/lib/timezone";
 
 // Jobs still on the books. Approved/cancelled work drops off, matching the
 // worker's own task list.
@@ -22,11 +24,12 @@ export async function GET() {
   const isManager = role === "ADMIN" || role === "OWNER";
   const scopeWhere = isManager ? {} : { workerId: userId };
 
+  // "Today" is the crews' today, not the server's — on a UTC host the day
+  // would otherwise roll over mid-evening local time.
+  const tz = await getBusinessTimezone();
   const now = new Date();
-  const dayStart = new Date(now);
-  dayStart.setHours(0, 0, 0, 0);
-  const dayEnd = new Date(dayStart);
-  dayEnd.setDate(dayEnd.getDate() + 1);
+  const dayStart = zonedDayStart(now, tz);
+  const dayEnd = addZonedDays(dayStart, 1, tz);
 
   const [items, unread, todayTotal, todayLeft, assignedTotal, next] =
     await Promise.all([

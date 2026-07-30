@@ -27,12 +27,20 @@ function usd(n: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 }
 
-function localParts(iso: string) {
+// Prefill values must be the business-local wall clock: the server parses them
+// back in that same zone, so reading them in the viewer's zone would shift the
+// job every time the form was saved.
+function localParts(iso: string, timeZone: string) {
   const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
+  // en-CA gives YYYY-MM-DD; en-GB with hour12:false gives HH:MM.
   return {
-    date: `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`,
-    time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    date: d.toLocaleDateString("en-CA", { timeZone }),
+    time: d.toLocaleTimeString("en-GB", {
+      timeZone,
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }),
   };
 }
 
@@ -42,6 +50,7 @@ export default function EditTaskModal({
   services,
   workStart,
   workEnd,
+  timezone,
   onClose,
 }: {
   task: CalendarTask;
@@ -50,13 +59,15 @@ export default function EditTaskModal({
   /** Business hours as "HH:MM", used to bound the time picker. */
   workStart: string;
   workEnd: string;
+  /** Business timezone the date/time fields are expressed in. */
+  timezone: string;
   onClose: () => void;
 }) {
   const router = useRouter();
   const [state, formAction] = useFormState<ActionState, FormData>(editTask, null);
   const [finishState, finishAction] = useFormState<ActionState, FormData>(finishTask, null);
   const [chargeState, chargeAction] = useFormState<ActionState, FormData>(chargeTask, null);
-  const { date, time } = localParts(task.start);
+  const { date, time } = localParts(task.start, timezone);
   const [duration, setDuration] = useState(String(task.durationMin));
   const [price, setPrice] = useState(String(task.price ?? 0));
 

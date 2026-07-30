@@ -4,8 +4,9 @@ import type { Role } from "@prisma/client";
 import StatusBadge from "@/components/StatusBadge";
 import type { CalendarTask } from "./CalendarView";
 
-function time(iso: string) {
+function time(iso: string, timeZone: string) {
   return new Date(iso).toLocaleTimeString("en-US", {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   });
@@ -26,14 +27,10 @@ function hoursLabel(totalMin: number) {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-/** Local YYYY-MM-DD, used to bucket jobs by calendar day. */
-function dayKey(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-}
-
-function isToday(d: Date) {
-  return dayKey(d) === dayKey(new Date());
+/** Business-local YYYY-MM-DD, used to bucket jobs by calendar day. */
+function dayKey(d: Date, timeZone: string) {
+  // en-CA formats as YYYY-MM-DD, which sorts and compares directly.
+  return d.toLocaleDateString("en-CA", { timeZone });
 }
 
 // Every job in the calendar's visible range, listed under the grid and grouped
@@ -44,6 +41,7 @@ export default function DaySummary({
   tasks,
   from,
   to,
+  timezone,
   role,
   onSelect,
 }: {
@@ -52,6 +50,8 @@ export default function DaySummary({
   from: Date;
   /** Exclusive end of the visible range. */
   to: Date;
+  /** Business timezone — every time below is rendered in it. */
+  timezone: string;
   role: Role;
   onSelect?: (id: string) => void;
 }) {
@@ -67,7 +67,7 @@ export default function DaySummary({
   // One bucket per day that actually has work, in chronological order.
   const days = new Map<string, CalendarTask[]>();
   for (const t of inRange) {
-    const key = dayKey(new Date(t.start));
+    const key = dayKey(new Date(t.start), timezone);
     const list = days.get(key);
     if (list) list.push(t);
     else days.set(key, [t]);
@@ -81,7 +81,7 @@ export default function DaySummary({
 
   // A single day in Day view, a span in Week view.
   const lastDay = new Date(to.getTime() - 1);
-  const multiDay = dayKey(from) !== dayKey(lastDay);
+  const multiDay = dayKey(from, timezone) !== dayKey(lastDay, timezone);
   const heading = multiDay
     ? `${from.toLocaleDateString("en-US", { month: "long", day: "numeric" })} – ${lastDay.toLocaleDateString(
         "en-US",
@@ -137,7 +137,11 @@ export default function DaySummary({
       ) : (
         <div className="divide-y divide-line/60">
           {[...days.entries()].map(([key, dayTasks]) => {
-            const d = new Date(`${key}T00:00:00`);
+            // Rendered straight from the business-local key: midday UTC can't
+            // roll into an adjacent date, and formatting in UTC echoes the key
+            // back exactly rather than re-shifting it into the viewer's zone.
+            const d = new Date(`${key}T12:00:00Z`);
+            const today = key === dayKey(new Date(), timezone);
             const dayMin = dayTasks.reduce((s, t) => s + t.durationMin, 0);
             return (
               <div key={key}>
@@ -146,15 +150,16 @@ export default function DaySummary({
                   <div className="flex items-baseline justify-between gap-3 bg-surface/60 px-5 py-2">
                     <span
                       className={`text-[11px] font-bold uppercase tracking-wider ${
-                        isToday(d) ? "text-navy-700" : "text-faint"
+                        today ? "text-navy-700" : "text-faint"
                       }`}
                     >
                       {d.toLocaleDateString("en-US", {
+                        timeZone: "UTC",
                         weekday: "long",
                         month: "short",
                         day: "numeric",
-                      })}
-                      {isToday(d) && " · today"}
+                        })}
+                      {today && " · today"}
                     </span>
                     <span className="text-[11px] tabular-nums text-faint">
                       {dayTasks.length} {dayTasks.length === 1 ? "job" : "jobs"} ·{" "}
@@ -171,8 +176,8 @@ export default function DaySummary({
                     const row = (
                       <>
                         <span className="w-[9.5rem] shrink-0 whitespace-nowrap text-sm font-semibold tabular-nums text-ink">
-                          {time(t.start)}
-                          <span className="font-normal text-faint"> – {time(end)}</span>
+                          {time(t.start, timezone)}
+                          <span className="font-normal text-faint"> – {time(end, timezone)}</span>
                         </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-ink">

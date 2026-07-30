@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { BUSINESS_TZ, zonedWeekStart, addZonedDays } from "./timezone";
 
 // Weekly hours are derived from the jobs a worker actually performed rather than
 // from a separate timesheet — the schedule already records duration, and a
@@ -19,20 +20,13 @@ export type WorkWeek = {
   pay: number | null;
 };
 
-/** Monday 00:00 local for the week containing `d`. */
-export function startOfWeek(d: Date): Date {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  // getDay(): 0 = Sunday. Shift so Monday is the first day.
-  const shift = (x.getDay() + 6) % 7;
-  x.setDate(x.getDate() - shift);
-  return x;
+/** Monday 00:00 for the week containing `d`, in the business timezone. */
+export function startOfWeek(d: Date, tz: string = BUSINESS_TZ): Date {
+  return zonedWeekStart(d, tz);
 }
 
-function addWeeks(d: Date, n: number): Date {
-  const x = new Date(d);
-  x.setDate(x.getDate() + n * 7);
-  return x;
+function addWeeks(d: Date, n: number, tz: string): Date {
+  return addZonedDays(d, n * 7, tz);
 }
 
 /** Round to 2dp without floating-point crumbs. */
@@ -46,14 +40,15 @@ function money(n: number): number {
  */
 export async function weeklyHours(
   userId: string,
-  opts?: { weeks?: number; hourlyRate?: number | null }
+  opts?: { weeks?: number; hourlyRate?: number | null; timezone?: string }
 ): Promise<WorkWeek[]> {
   const weeks = opts?.weeks ?? 8;
   const rate = opts?.hourlyRate ?? null;
+  const tz = opts?.timezone ?? BUSINESS_TZ;
 
-  const thisWeek = startOfWeek(new Date());
-  const from = addWeeks(thisWeek, -(weeks - 1));
-  const to = addWeeks(thisWeek, 1);
+  const thisWeek = startOfWeek(new Date(), tz);
+  const from = addWeeks(thisWeek, -(weeks - 1), tz);
+  const to = addWeeks(thisWeek, 1, tz);
 
   const tasks = await prisma.task.findMany({
     where: {
@@ -67,10 +62,10 @@ export async function weeklyHours(
   // Bucket by week start timestamp.
   const buckets = new Map<number, { jobs: number; minutes: number }>();
   for (let i = 0; i < weeks; i++) {
-    buckets.set(addWeeks(from, i).getTime(), { jobs: 0, minutes: 0 });
+    buckets.set(addWeeks(from, i, tz).getTime(), { jobs: 0, minutes: 0 });
   }
   for (const t of tasks) {
-    const key = startOfWeek(t.startTime).getTime();
+    const key = startOfWeek(t.startTime, tz).getTime();
     const b = buckets.get(key);
     if (!b) continue; // outside the window we're reporting on
     b.jobs += 1;
@@ -91,12 +86,11 @@ export async function weeklyHours(
     });
 }
 
-/** "Mon Jul 27 – Sun Aug 2" style label for a week bucket. */
-export function weekLabel(weekStart: Date): string {
-  const end = new Date(weekStart);
-  end.setDate(end.getDate() + 6);
+/** "Jul 27 – Aug 2" style label for a week bucket. */
+export function weekLabel(weekStart: Date, tz: string = BUSINESS_TZ): string {
+  const end = addZonedDays(weekStart, 6, tz);
   const f = (d: Date) =>
-    d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    d.toLocaleDateString("en-US", { timeZone: tz, month: "short", day: "numeric" });
   return `${f(weekStart)} – ${f(end)}`;
 }
 

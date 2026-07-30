@@ -71,6 +71,7 @@ export default function CalendarView({
   slotMaxTime,
   workStart,
   workEnd,
+  timezone,
   workers,
   services,
 }: {
@@ -83,6 +84,13 @@ export default function CalendarView({
   /** The configured business hours themselves, as "HH:MM". */
   workStart: string;
   workEnd: string;
+  /**
+   * The business timezone. Times below are formatted in it explicitly so they
+   * read the same wherever the viewer is. The FullCalendar grid itself stays on
+   * browser-local time — named zones there need an extra plugin — which is
+   * identical for anyone actually in the business zone.
+   */
+  timezone: string;
   workers: Worker[];
   services: Service[];
 }) {
@@ -258,6 +266,7 @@ export default function CalendarView({
                   {start && (
                     <span className="shrink-0 text-[10px] font-bold tabular-nums opacity-80">
                       {start.toLocaleTimeString("en-US", {
+                        timeZone: timezone,
                         hour: "numeric",
                         minute: "2-digit",
                       })}
@@ -283,6 +292,7 @@ export default function CalendarView({
         tasks={tasks}
         from={focusDate}
         to={rangeEnd}
+        timezone={timezone}
         role={role}
         onSelect={isAdmin ? setEditingId : undefined}
       />
@@ -299,6 +309,7 @@ export default function CalendarView({
           services={services}
           workStart={workStart}
           workEnd={workEnd}
+          timezone={timezone}
           onClose={() => setEditingId(null)}
         />
       )}

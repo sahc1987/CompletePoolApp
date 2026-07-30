@@ -137,6 +137,10 @@ model AppSettings {
   id              String   @id @default("app")
   workdayStartMin Int      @default(480) // 08:00
   workdayEndMin   Int      @default(1140) // 19:00
+  // IANA zone the whole business runs on. Job times, business hours, "today"
+  // and week boundaries are all interpreted against this rather than the
+  // server's clock, which is UTC on Vercel.
+  timezone        String   @default("America/New_York")
   updatedAt       DateTime @updatedAt
 }
 
