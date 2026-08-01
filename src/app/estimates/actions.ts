@@ -44,12 +44,32 @@ async function editableDraft(id: string) {
   return est;
 }
 
-const createSchema = z.object({
-  clientId: z.string().min(1, "Pick a client"),
-  poolId: z.string().optional(),
-  notes: z.string().trim().optional(),
-  validUntil: z.string().optional(),
-});
+// Two shapes behind one form: quote an existing client, or capture a brand new
+// one on the spot. Workers meet prospects in the field before they're in the
+// system, so requiring an admin to add the client first would stall the quote.
+const createSchema = z
+  .object({
+    mode: z.enum(["existing", "new"]).default("existing"),
+    clientId: z.string().optional(),
+    poolId: z.string().optional(),
+    newName: z.string().trim().optional(),
+    newPhone: z.string().trim().optional(),
+    newEmail: z
+      .string()
+      .trim()
+      .email("That email doesn't look right")
+      .or(z.literal(""))
+      .optional(),
+    newAddress: z.string().trim().optional(),
+    notes: z.string().trim().optional(),
+    validUntil: z.string().optional(),
+  })
+  .refine((d) => d.mode === "new" || !!d.clientId, {
+    message: "Pick a client",
+  })
+  .refine((d) => d.mode === "existing" || !!d.newName, {
+    message: "Enter the new customer's name",
+  });
 
 export async function createEstimate(
   _prev: ActionState,
@@ -60,10 +80,44 @@ export async function createEstimate(
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const d = parsed.data;
 
+  let clientId = d.clientId ?? "";
+  let poolId = d.poolId || null;
+
+  if (d.mode === "new") {
+    const name = d.newName!;
+    // A worker in the field can't see the client list while typing, so catch
+    // the obvious duplicate rather than quietly creating a second record.
+    const dupe = await prisma.client.findFirst({
+      where: { name: { equals: name, mode: "insensitive" } },
+      select: { name: true },
+    });
+    if (dupe) {
+      return {
+        error: `“${dupe.name}” is already a customer — pick them from the list instead.`,
+      };
+    }
+
+    const created = await prisma.client.create({
+      data: {
+        name,
+        phone: d.newPhone || null,
+        email: d.newEmail || null,
+        address: d.newAddress || null,
+        // The address they gave is where the pool is, so seed the service
+        // location too — otherwise the estimate has nowhere to point.
+        pools: d.newAddress ? { create: { address: d.newAddress } } : undefined,
+      },
+      include: { pools: { select: { id: true } } },
+    });
+    clientId = created.id;
+    poolId = created.pools[0]?.id ?? null;
+    revalidatePath("/clients");
+  }
+
   const estimate = await prisma.estimate.create({
     data: {
-      clientId: d.clientId,
-      poolId: d.poolId || null,
+      clientId,
+      poolId,
       createdById: user.id,
       notes: d.notes || null,
       validUntil: d.validUntil ? new Date(`${d.validUntil}T00:00:00`) : null,

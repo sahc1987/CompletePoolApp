@@ -6,14 +6,33 @@ import { Role } from "@prisma/client";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
+import { canAdminister, canGrantRole, ROLE_LABEL } from "@/lib/privileges";
+import { notifyUser } from "@/lib/notify";
 import type { ActionState } from "@/lib/actions";
 
-// Both roles administer the team.
+// Both roles reach the team page, but what each may do there is decided by
+// rank — see lib/privileges.ts.
 const MANAGERS: Role[] = ["ADMIN", "OWNER"];
 // Accounts that can reach this page at all. If we ever let the last one be
 // disabled or demoted, nobody could administer the system again — so every
 // mutation below checks that at least one active manager survives.
 const PRIVILEGED: Role[] = ["ADMIN", "OWNER"];
+
+/**
+ * Load the target and confirm the actor outranks them. Every account mutation
+ * goes through this — the page hides controls the actor can't use, but the
+ * server actions are their own entry point and can be called directly.
+ */
+async function loadAdministrableTarget(actorRole: Role, userId: string) {
+  const target = await prisma.user.findUnique({ where: { id: userId } });
+  if (!target) return { error: "User not found" as const };
+  if (!canAdminister(actorRole, target.role)) {
+    return {
+      error: `You can't administer ${ROLE_LABEL[target.role].toLowerCase()} accounts.` as const,
+    };
+  }
+  return { target };
+}
 
 async function otherActiveManagersExist(excludeUserId: string) {
   const n = await prisma.user.count({
@@ -65,11 +84,9 @@ export async function saveEmployment(
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const { userId, hourlyRate, hiredOn, birthday, note } = parsed.data;
 
-  const before = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { hourlyRate: true },
-  });
-  if (!before) return { error: "User not found" };
+  const found = await loadAdministrableTarget(actor.role, userId);
+  if ("error" in found) return { error: found.error };
+  const before = found.target;
 
   const oldRate = before.hourlyRate === null ? null : Number(before.hourlyRate);
   const rateChanged = oldRate !== hourlyRate;
@@ -119,9 +136,17 @@ export async function setUserRole(
     return { error: "You can't change your own role — ask another admin or owner." };
   }
 
-  const target = await prisma.user.findUnique({ where: { id: userId } });
-  if (!target) return { error: "User not found" };
+  const found = await loadAdministrableTarget(actor.role, userId);
+  if ("error" in found) return { error: found.error };
+  const target = found.target;
   if (target.role === role) return { ok: true };
+
+  // You can appoint a peer, but never someone above you — otherwise an admin
+  // promotes a worker to owner, resets that worker's password (workers are
+  // administrable), and signs in with owner privileges.
+  if (!canGrantRole(actor.role, role)) {
+    return { error: `You can't grant the ${ROLE_LABEL[role].toLowerCase()} role.` };
+  }
 
   // Demoting the last manager would leave nobody able to administer users.
   const losingPrivilege = PRIVILEGED.includes(target.role) && !PRIVILEGED.includes(role);
@@ -141,8 +166,9 @@ export async function toggleUserActive(formData: FormData): Promise<void> {
   const userId = String(formData.get("userId") ?? "");
   if (!userId || userId === actor.id) return;
 
-  const target = await prisma.user.findUnique({ where: { id: userId } });
-  if (!target) return;
+  const found = await loadAdministrableTarget(actor.role, userId);
+  if ("error" in found) throw new Error(found.error);
+  const target = found.target;
 
   if (target.active) {
     if (PRIVILEGED.includes(target.role) && !(await otherActiveManagersExist(userId))) {
@@ -169,10 +195,16 @@ export async function createUser(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireRole(...MANAGERS);
+  const actor = await requireRole(...MANAGERS);
   const parsed = createSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.errors[0].message };
   const { name, email, phone, role, password } = parsed.data;
+
+  // Creating the account sets its first password, so minting one above your own
+  // rank would be a direct route to privileges you don't have.
+  if (!canGrantRole(actor.role, role)) {
+    return { error: `You can't create ${ROLE_LABEL[role].toLowerCase()} accounts.` };
+  }
 
   const existing = await prisma.user.findUnique({ where: { email } });
   if (existing) return { error: "Someone already uses that email." };
@@ -196,22 +228,33 @@ const resetSchema = z.object({
 });
 
 // Set someone else's password (they forgot theirs). The current password is
-// not required here because a manager is acting, not the account owner.
+// not required here because a manager is acting, not the account owner — which
+// is exactly why it's restricted to accounts the actor outranks. Resetting a
+// password is equivalent to signing in as that person.
 export async function resetUserPassword(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireRole(...MANAGERS);
+  const actor = await requireRole(...MANAGERS);
   const parsed = resetSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) return { error: parsed.error.errors[0].message };
 
-  const target = await prisma.user.findUnique({ where: { id: parsed.data.userId } });
-  if (!target) return { error: "User not found" };
+  const found = await loadAdministrableTarget(actor.role, parsed.data.userId);
+  if ("error" in found) return { error: found.error };
 
   await prisma.user.update({
-    where: { id: parsed.data.userId },
+    where: { id: found.target.id },
     data: { passwordHash: await bcrypt.hash(parsed.data.password, 10) },
   });
+
+  // A reset hands someone else control of an account; leave a trace the target
+  // will see rather than letting it happen silently.
+  await notifyUser(
+    found.target.id,
+    `${actor.name ?? "A manager"} reset your password.`,
+    { link: "/account" }
+  );
+
   revalidatePath("/users");
   return { ok: true };
 }

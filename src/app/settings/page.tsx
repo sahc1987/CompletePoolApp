@@ -1,6 +1,3 @@
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
@@ -19,6 +16,7 @@ import {
   saveTaxRate,
   toggleTaxRate,
 } from "./actions";
+import { requirePageSession } from "@/lib/guard";
 
 // Read-first: a catalog is scanned far more often than it's edited, so a row
 // shows the facts and keeps the form behind an Edit dialog.
@@ -75,8 +73,7 @@ function CatalogRow({
 }
 
 export default async function SettingsPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN");
 
   const [services, extras, taxRates, hours] = await Promise.all([
     prisma.service.findMany({ orderBy: { name: "asc" } }),

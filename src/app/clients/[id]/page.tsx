@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
 import { redirect, notFound } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import DeleteButton from "@/components/DeleteButton";
@@ -10,14 +8,14 @@ import { card } from "@/components/styles";
 import ClientForm from "../ClientForm";
 import PoolForm from "../PoolForm";
 import { deleteClient, deletePool } from "../actions";
+import { requirePageSession } from "@/lib/guard";
 
 export default async function ClientDetailPage({
   params,
 }: {
   params: { id: string };
 }) {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN");
 
   const client = await prisma.client.findUnique({
     where: { id: params.id },

@@ -1,6 +1,3 @@
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
@@ -11,10 +8,10 @@ import StockForm from "./StockForm";
 import RespondForm from "./RespondForm";
 import { saveMaterial, toggleMaterial } from "./actions";
 import DeleteButton from "@/components/DeleteButton";
+import { requirePageSession } from "@/lib/guard";
 
 export default async function MaterialsPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN");
 
   const [materials, pendingRequests] = await Promise.all([
     prisma.material.findMany({ orderBy: { name: "asc" } }),

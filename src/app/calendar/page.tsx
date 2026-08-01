@@ -1,6 +1,3 @@
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { toNumber } from "@/lib/serialize";
@@ -8,10 +5,10 @@ import { paidAmount } from "@/lib/billing";
 import { getWorkHours, minToHHMM } from "@/lib/schedule";
 import { zonedDayKey } from "@/lib/timezone";
 import CalendarView, { type CalendarTask } from "./CalendarView";
+import { requirePageSession } from "@/lib/guard";
 
 export default async function CalendarPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession();
 
   const isWorker = session.user.role === "WORKER";
   const isAdmin = session.user.role === "ADMIN";

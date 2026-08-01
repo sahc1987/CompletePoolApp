@@ -2,11 +2,27 @@ import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
+import {
+  clearFailures,
+  clearSourceFailures,
+  clientIp,
+  isLockedOut,
+  isSourceBlocked,
+  recordFailure,
+  recordSourceFailure,
+} from "./loginThrottle";
 
-// Lockout policy, shared with the login page so the UI can't drift from what
-// the server actually enforces.
-export const MAX_LOGIN_ATTEMPTS = 3;
-export const LOCKOUT_SECONDS = 30;
+// Re-exported for the callers that already import the policy from here.
+export { MAX_LOGIN_ATTEMPTS, LOCKOUT_SECONDS } from "./loginThrottle";
+
+/**
+ * How long a JWT may assert a role before it's checked against the database.
+ * Role and `active` are baked into the token at sign-in; without this the token
+ * keeps its privileges for the full session lifetime, so disabling or demoting
+ * someone wouldn't take effect until they next signed in — which a dismissed
+ * employee has no reason to do.
+ */
+const REVALIDATE_MS = 60_000;
 
 export const authOptions: NextAuthOptions = {
   session: { strategy: "jwt" },
@@ -18,47 +34,34 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
+        const email = credentials.email.trim().toLowerCase();
+        const ip = clientIp(req?.headers ?? {});
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email.trim().toLowerCase() },
-        });
-        if (!user?.active) return null;
+        // Throttle first, and by the address typed rather than by account.
+        // Checking the user before the lock would let response timing separate
+        // "no such address" from "locked out".
+        if (await isLockedOut(email)) return null;
+        // The per-account lock can't see a spray — one password against forty
+        // addresses leaves every account on a single failure. This can.
+        if (await isSourceBlocked(ip)) return null;
 
-        // Locked out: refuse even a correct password until the window passes.
-        if (user.lockedUntil && user.lockedUntil > new Date()) return null;
-
-        const valid = await bcrypt.compare(credentials.password, user.passwordHash);
-
-        if (!valid) {
-          // The lock window may have just expired, in which case lockedUntil is
-          // stale and the stored count already sits at 0 — so this simply counts
-          // up again from wherever the last round left off.
-          const attempts = user.failedLoginAttempts + 1;
-          const lock = attempts >= MAX_LOGIN_ATTEMPTS;
-          await prisma.user.update({
-            where: { id: user.id },
-            data: lock
-              ? {
-                  // Reset the counter alongside the lock so the next round gets
-                  // a full set of attempts rather than locking on every try.
-                  failedLoginAttempts: 0,
-                  lockedUntil: new Date(Date.now() + LOCKOUT_SECONDS * 1000),
-                }
-              : { failedLoginAttempts: attempts },
-          });
+        const fail = async () => {
+          await Promise.all([recordFailure(email), recordSourceFailure(ip)]);
           return null;
+        };
+
+        const user = await prisma.user.findUnique({ where: { email } });
+
+        // Unknown address, disabled account and wrong password all take the
+        // same branch: one strike, one null. Nothing distinguishes them.
+        if (!user?.active) return fail();
+        if (!(await bcrypt.compare(credentials.password, user.passwordHash))) {
+          return fail();
         }
 
-        // Successful sign-in clears any accumulated strikes.
-        if (user.failedLoginAttempts !== 0 || user.lockedUntil) {
-          await prisma.user.update({
-            where: { id: user.id },
-            data: { failedLoginAttempts: 0, lockedUntil: null },
-          });
-        }
-
+        await Promise.all([clearFailures(email), clearSourceFailures(ip)]);
         return { id: user.id, name: user.name, email: user.email, role: user.role };
       },
     }),
@@ -68,10 +71,36 @@ export const authOptions: NextAuthOptions = {
       if (user) {
         token.role = user.role;
         token.id = user.id;
+        token.checkedAt = Date.now();
+        return token;
       }
+
+      // Existing session: re-read the account periodically so a demotion or a
+      // deactivation lands within REVALIDATE_MS instead of at next sign-in.
+      if (Date.now() - (token.checkedAt ?? 0) < REVALIDATE_MS) return token;
+
+      const fresh = await prisma.user.findUnique({
+        where: { id: token.id },
+        select: { role: true, active: true },
+      });
+      token.checkedAt = Date.now();
+      if (!fresh?.active) {
+        // Deleted or disabled. Strip the privileges too, so anything that
+        // somehow reads past `revoked` still gets nothing useful.
+        token.revoked = true;
+        return token;
+      }
+      token.revoked = false;
+      token.role = fresh.role;
       return token;
     },
     async session({ session, token }) {
+      // Hand back an empty object for a revoked account. next-auth treats a
+      // zero-key body as "no session", so getServerSession returns null and
+      // every `if (!session) redirect("/login")` in the app fires — no caller
+      // has to remember to test a flag.
+      if (token.revoked) return {} as typeof session;
+
       if (session.user) {
         session.user.role = token.role;
         session.user.id = token.id;

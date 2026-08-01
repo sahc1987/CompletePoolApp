@@ -1,6 +1,3 @@
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
@@ -12,6 +9,7 @@ import { card } from "@/components/styles";
 import { startTask } from "./actions";
 import SubmitTaskForm from "./SubmitTaskForm";
 import MaterialRequestForm from "./MaterialRequestForm";
+import { requirePageSession } from "@/lib/guard";
 
 function fmtTime(d: Date) {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
@@ -28,8 +26,7 @@ function sameDay(a: Date, b: Date) {
 }
 
 export default async function WorkerPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("WORKER");
 
   // Active jobs only — approved/cancelled drop off the worker's list.
   const tasks = await prisma.task.findMany({

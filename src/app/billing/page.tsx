@@ -1,7 +1,4 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
@@ -19,6 +16,7 @@ import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
 import UndoForm from "./UndoForm";
 import { InvoiceButton, type InvoiceData, type ReceiptData } from "./BillingPdf";
+import { requirePageSession } from "@/lib/guard";
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: "Cash",
@@ -106,8 +104,7 @@ export default async function BillingPage({
 }: {
   searchParams: { status?: string; sort?: string; dir?: string };
 }) {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN", "OWNER");
 
   const isAdmin = session.user.role === "ADMIN";
 

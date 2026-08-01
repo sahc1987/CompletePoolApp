@@ -21,5 +21,9 @@ declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     role: Role;
+    /** Epoch ms of the last database re-check of `role`/`active`. */
+    checkedAt?: number;
+    /** The account no longer exists or is inactive — treat as signed out. */
+    revoked?: boolean;
   }
 }

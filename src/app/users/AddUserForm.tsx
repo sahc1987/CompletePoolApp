@@ -8,7 +8,13 @@ import { useCloseOnSuccess, ModalCancel } from "@/components/Modal";
 import { inputClass, selectClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
-export default function AddUserForm() {
+const ROLE_LABEL: Record<string, string> = {
+  OWNER: "Owner",
+  ADMIN: "Admin",
+  WORKER: "Worker",
+};
+
+export default function AddUserForm({ roleOptions }: { roleOptions: string[] }) {
   const [state, formAction] = useFormState<ActionState, FormData>(createUser, null);
   useCloseOnSuccess(state, { success: "User added." });
 
@@ -25,10 +31,15 @@ export default function AddUserForm() {
           <input id="new-phone" name="phone" className={inputClass} placeholder="516-555-0000" />
         </Field>
         <Field label="Role" htmlFor="new-role" required>
+          {/* Only roles this manager may grant — creating an account sets its
+              first password, so an unrestricted picker would be a way to hand
+              yourself privileges you don't have. The server re-checks. */}
           <select id="new-role" name="role" defaultValue="WORKER" className={selectClass}>
-            <option value="WORKER">Worker</option>
-            <option value="ADMIN">Admin</option>
-            <option value="OWNER">Owner</option>
+            {roleOptions.map((r) => (
+              <option key={r} value={r}>
+                {ROLE_LABEL[r] ?? r}
+              </option>
+            ))}
           </select>
         </Field>
       </div>

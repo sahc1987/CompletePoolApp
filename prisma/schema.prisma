@@ -89,9 +89,10 @@ model User {
   hiredOn    DateTime? // date only; stored at local midnight
   birthday   DateTime? // date only; year is kept but only day/month are shown
 
-  // Brute-force throttling. Counts consecutive failed sign-ins; once the limit
-  // is hit the account is locked until `lockedUntil` and the counter resets, so
-  // each lock buys another full round of attempts. Enforced in lib/auth.ts.
+  // Superseded by the LoginAttempt model, which throttles by the email that was
+  // typed rather than by account — keying off User made an unknown address
+  // behave differently from a real one, which told an attacker who exists.
+  // Retained so historical rows aren't dropped; nothing reads them.
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
@@ -142,6 +143,39 @@ model AppSettings {
   // server's clock, which is UTC on Vercel.
   timezone        String   @default("America/New_York")
   updatedAt       DateTime @updatedAt
+}
+
+// Sign-in throttling, keyed by the email that was typed — deliberately not by
+// User. A row is created for any address someone tries, real or not, so the
+// lockout state an unknown address reports is indistinguishable from a genuine
+// account's. Keying this off User meant "3 attempts left" vs "2 attempts left"
+// answered "does this person work here?" for anyone who asked.
+// Rows are disposable: pruned once they go stale (see lib/loginThrottle.ts).
+model LoginAttempt {
+  email       String    @id
+  failedCount Int       @default(0)
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([updatedAt])
+}
+
+// Per-source throttling, which the per-email counter above cannot do: trying
+// one common password against every employee address never trips a per-account
+// lock, because no single account sees more than one failure. Deliberately a
+// separate table rather than a shared one — the policy is different (a wider
+// budget over a rolling window, since one address legitimately covers a whole
+// office behind NAT).
+model LoginSource {
+  // Client IP, or "unknown" when no forwarded address is available.
+  ip          String    @id
+  failedCount Int       @default(0)
+  // Start of the rolling window the count belongs to; a new window resets it.
+  windowStart DateTime  @default(now())
+  lockedUntil DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  @@index([updatedAt])
 }
 
 model Notification {

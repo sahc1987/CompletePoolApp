@@ -1,11 +1,9 @@
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { card } from "@/components/styles";
 import { money, toNumber } from "@/lib/serialize";
+import { requirePageSession } from "@/lib/guard";
 
 function num(v: unknown): number {
   return toNumber(v as never) ?? 0;
@@ -20,8 +18,7 @@ function fmtHours(min: number): string {
 }
 
 export default async function KpiPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("OWNER");
 
   // Only APPROVED tasks are billable — revenue/margin count these alone.
   const approved = await prisma.task.findMany({

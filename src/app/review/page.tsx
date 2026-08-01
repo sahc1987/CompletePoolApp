@@ -1,6 +1,3 @@
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
@@ -9,6 +6,7 @@ import { card } from "@/components/styles";
 import { money } from "@/lib/serialize";
 import { approveTask } from "./actions";
 import FlagForm from "./FlagForm";
+import { requirePageSession } from "@/lib/guard";
 
 function fmt(d: Date) {
   return d.toLocaleString("en-US", {
@@ -21,8 +19,7 @@ function fmt(d: Date) {
 }
 
 export default async function ReviewPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN");
 
   const tasks = await prisma.task.findMany({
     where: { status: "SUBMITTED" },

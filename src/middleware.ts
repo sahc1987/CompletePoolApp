@@ -20,7 +20,18 @@ const ROUTE_RULES: { prefix: string; roles: Array<"OWNER" | "ADMIN" | "WORKER"> 
 export default withAuth(
   function middleware(req) {
     const { pathname } = req.nextUrl;
-    const role = req.nextauth.token?.role as "OWNER" | "ADMIN" | "WORKER" | undefined;
+    const token = req.nextauth.token;
+
+    // The account behind this token was disabled or deleted (see the jwt
+    // callback in lib/auth.ts). Send them back to sign in, where they'll be
+    // refused — rather than /unauthorized, which implies a live session.
+    if (token?.revoked) {
+      const url = new URL("/login", req.url);
+      url.searchParams.set("callbackUrl", pathname);
+      return NextResponse.redirect(url);
+    }
+
+    const role = token?.role as "OWNER" | "ADMIN" | "WORKER" | undefined;
 
     const rule = ROUTE_RULES.find((r) => pathname.startsWith(r.prefix));
     if (rule && (!role || !rule.roles.includes(role))) {

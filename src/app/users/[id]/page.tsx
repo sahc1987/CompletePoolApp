@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
 import { redirect, notFound } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import { card } from "@/components/styles";
@@ -9,6 +7,7 @@ import { toNumber } from "@/lib/serialize";
 import { weeklyHours, weekLabel, hoursLabel } from "@/lib/payroll";
 import { getBusinessTimezone } from "@/lib/schedule";
 import EmploymentForm from "../EmploymentForm";
+import { requirePageSession } from "@/lib/guard";
 
 function usd(n: number) {
   return new Intl.NumberFormat("en-US", {
@@ -48,8 +47,7 @@ export default async function TeamMemberPage({
 }: {
   params: { id: string };
 }) {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN", "OWNER");
 
   const user = await prisma.user.findUnique({
     where: { id: params.id },

@@ -1,7 +1,4 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
@@ -11,10 +8,10 @@ import { toNumber } from "@/lib/serialize";
 import { getWorkHours, minToHHMM } from "@/lib/schedule";
 import AssignForm from "./AssignForm";
 import { runRecurrenceExpansion } from "./actions";
+import { requirePageSession } from "@/lib/guard";
 
 export default async function AssignPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN");
 
   const [clients, workers, services, extras, hours] = await Promise.all([
     prisma.client.findMany({

@@ -1,12 +1,11 @@
-import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { card } from "@/components/styles";
 import ProfileForm from "./ProfileForm";
 import PasswordForm from "./PasswordForm";
+import { requirePageSession } from "@/lib/guard";
 
 const ROLE_BLURB: Record<string, string> = {
   OWNER: "Read-only across the app, with full access to the KPI dashboard.",
@@ -15,8 +14,7 @@ const ROLE_BLURB: Record<string, string> = {
 };
 
 export default async function AccountPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession();
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },

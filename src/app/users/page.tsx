@@ -1,7 +1,4 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/serialize";
 import AppShell from "@/components/AppShell";
@@ -12,6 +9,8 @@ import RoleForm from "./RoleForm";
 import AddUserForm from "./AddUserForm";
 import ResetPasswordForm from "./ResetPasswordForm";
 import { toggleUserActive } from "./actions";
+import { requirePageSession } from "@/lib/guard";
+import { canAdminister, grantableRoles } from "@/lib/privileges";
 
 const ROLE_BLURB: Record<string, string> = {
   OWNER: "Dashboard + billing, and can manage the team",
@@ -25,8 +24,7 @@ function initials(name: string) {
 }
 
 export default async function UsersPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN", "OWNER");
 
   const users = await prisma.user.findMany({
     orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }],
@@ -39,11 +37,23 @@ export default async function UsersPage() {
 
   // The last active admin/owner must keep their privileges, or nobody could
   // administer the system afterwards; you also can't disable yourself.
+  // What this actor may hand out, and whom they may act on at all. An admin
+  // can no longer touch owner accounts, so the controls for them are hidden
+  // rather than shown and then rejected.
+  const actorRole = session.user.role;
+  const roleOptions = grantableRoles(actorRole);
+
   const rows = users.map((u) => {
     const isSelf = u.id === session.user.id;
     const isLastManager =
       (u.role === "ADMIN" || u.role === "OWNER") && u.active && activeManagers <= 1;
-    return { u, isSelf, locked: isSelf || isLastManager };
+    const administrable = canAdminister(actorRole, u.role);
+    return {
+      u,
+      isSelf,
+      administrable,
+      locked: isSelf || isLastManager || !administrable,
+    };
   });
 
   return (
@@ -63,7 +73,7 @@ export default async function UsersPage() {
               subtitle="They can sign in as soon as you save."
               size="lg"
             >
-              <AddUserForm />
+              <AddUserForm roleOptions={roleOptions} />
             </ModalButton>
           </div>
         }
@@ -72,7 +82,7 @@ export default async function UsersPage() {
       {/* Mobile: one card per teammate — the role picker and actions stack so
           nothing gets pushed off-screen. */}
       <div className="space-y-3 sm:hidden">
-        {rows.map(({ u, isSelf, locked }) => (
+        {rows.map(({ u, isSelf, administrable, locked }) => (
           <div
             key={u.id}
             className={`rounded-2xl border border-line/80 bg-white p-4 shadow-card ${
@@ -108,7 +118,7 @@ export default async function UsersPage() {
             </div>
 
             <div className="mt-3">
-              <RoleForm userId={u.id} role={u.role} disabled={locked} />
+              <RoleForm userId={u.id} role={u.role} disabled={locked} options={roleOptions} />
               <div className="mt-1 text-[12px] text-faint">{ROLE_BLURB[u.role]}</div>
             </div>
 
@@ -126,10 +136,10 @@ export default async function UsersPage() {
                 >
                   Details
                 </Link>
-                <ResetPasswordForm userId={u.id} name={u.name} />
+                {administrable && <ResetPasswordForm userId={u.id} name={u.name} />}
                 {locked ? (
                   <span className="whitespace-nowrap px-2.5 py-1.5 text-[13px] font-medium text-faint">
-                    {isSelf ? "—" : "Last manager"}
+                    {isSelf ? "—" : administrable ? "Last manager" : "Above you"}
                   </span>
                 ) : (
                   <DeleteButton
@@ -168,7 +178,7 @@ export default async function UsersPage() {
             </tr>
           </thead>
           <tbody className="divide-y divide-line/60">
-            {rows.map(({ u, isSelf, locked }) => {
+            {rows.map(({ u, isSelf, administrable, locked }) => {
               return (
                 <tr
                   key={u.id}
@@ -200,7 +210,7 @@ export default async function UsersPage() {
                   </td>
 
                   <td className="px-4 py-4 sm:px-5">
-                    <RoleForm userId={u.id} role={u.role} disabled={locked} />
+                    <RoleForm userId={u.id} role={u.role} disabled={locked} options={roleOptions} />
                     <div className="mt-1 text-[12px] text-faint">{ROLE_BLURB[u.role]}</div>
                   </td>
 
@@ -242,17 +252,19 @@ export default async function UsersPage() {
                       >
                         Details
                       </Link>
-                      <ResetPasswordForm userId={u.id} name={u.name} />
+                      {administrable && <ResetPasswordForm userId={u.id} name={u.name} />}
                       {locked ? (
                         <span
                           className="whitespace-nowrap px-2.5 py-1.5 text-[13px] font-medium text-faint"
                           title={
                             isSelf
                               ? "You can't disable your own account"
-                              : "The last active admin/owner can't be disabled"
+                              : administrable
+                                ? "The last active admin/owner can't be disabled"
+                                : "This account outranks yours"
                           }
                         >
-                          {isSelf ? "—" : "Last manager"}
+                          {isSelf ? "—" : administrable ? "Last manager" : "Above you"}
                         </span>
                       ) : (
                         <DeleteButton

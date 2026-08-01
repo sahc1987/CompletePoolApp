@@ -1,13 +1,11 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
-import { redirect } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { ModalButton } from "@/components/Modal";
 import { money } from "@/lib/serialize";
 import EstimateForm from "./EstimateForm";
+import { requirePageSession } from "@/lib/guard";
 
 const STATUS_STYLE: Record<string, string> = {
   DRAFT: "bg-ink/10 text-muted",
@@ -17,8 +15,7 @@ const STATUS_STYLE: Record<string, string> = {
 };
 
 export default async function EstimatesPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN", "WORKER");
 
   const [clients, estimates] = await Promise.all([
     prisma.client.findMany({
@@ -41,17 +38,17 @@ export default async function EstimatesPage() {
         accent="quotes"
         subtitle="Build a quote, present it on-site, and capture the signature in person."
         action={
-          clients.length > 0 && (
-            <ModalButton
-              label="New estimate"
-              title="New estimate"
-              subtitle="Start a draft — you'll add line items on the next screen."
-            >
-              <EstimateForm
-                clients={clients.map((c) => ({ id: c.id, name: c.name, pools: c.pools }))}
-              />
-            </ModalButton>
-          )
+          // No client-list gate: the form can create the customer inline, so
+          // an empty book still needs a way in.
+          <ModalButton
+            label="New estimate"
+            title="New estimate"
+            subtitle="Start a draft — you'll add line items on the next screen."
+          >
+            <EstimateForm
+              clients={clients.map((c) => ({ id: c.id, name: c.name, pools: c.pools }))}
+            />
+          </ModalButton>
         }
       />
 

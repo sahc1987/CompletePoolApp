@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { getServerSession } from "next-auth";
 import { redirect, notFound } from "next/navigation";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import ActionForm from "@/components/ActionForm";
@@ -20,6 +18,7 @@ import {
   backToDraft,
   deleteEstimate,
 } from "../actions";
+import { requirePageSession } from "@/lib/guard";
 
 const STATUS_STYLE: Record<string, string> = {
   DRAFT: "bg-ink/10 text-muted",
@@ -37,8 +36,7 @@ export default async function EstimateDetailPage({
 }: {
   params: { id: string };
 }) {
-  const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  const session = await requirePageSession("ADMIN", "WORKER");
 
   const estimate = await prisma.estimate.findUnique({
     where: { id: params.id },

@@ -8,11 +8,11 @@ import { useActionToast } from "@/components/Toast";
 import { selectClass } from "@/components/styles";
 import type { ActionState } from "@/lib/actions";
 
-const ROLES = [
-  { value: "OWNER", label: "Owner" },
-  { value: "ADMIN", label: "Admin" },
-  { value: "WORKER", label: "Worker" },
-];
+const ROLE_LABEL: Record<string, string> = {
+  OWNER: "Owner",
+  ADMIN: "Admin",
+  WORKER: "Worker",
+};
 
 // Privileges are deliberately an explicit save, not a change-and-it's-done
 // select — a mis-click shouldn't silently re-permission someone.
@@ -20,10 +20,13 @@ export default function RoleForm({
   userId,
   role,
   disabled,
+  options,
 }: {
   userId: string;
   role: string;
   disabled?: boolean;
+  /** Roles the signed-in manager may grant. The server enforces this too. */
+  options: string[];
 }) {
   const [state, formAction] = useFormState<ActionState, FormData>(setUserRole, null);
   useActionToast(state, { success: "Privileges updated." });
@@ -41,9 +44,12 @@ export default function RoleForm({
         className={`${selectClass} w-32 py-1.5 text-sm`}
         aria-label="Role"
       >
-        {ROLES.map((r) => (
-          <option key={r.value} value={r.value}>
-            {r.label}
+        {/* The current role is always listed even when this manager can't
+            grant it, so the select shows what the person actually is rather
+            than silently displaying someone else's role. */}
+        {(options.includes(role) ? options : [role, ...options]).map((r) => (
+          <option key={r} value={r}>
+            {ROLE_LABEL[r] ?? r}
           </option>
         ))}
       </select>
