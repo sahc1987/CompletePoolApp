@@ -257,12 +257,22 @@ export default function CalendarView({
               serviceName: string;
             };
             const start = arg.event.start;
+            const end = arg.event.end;
+
+            // Only render what the block is tall enough to hold. A slot row is
+            // ~37px per half hour, so a 30-minute job fits one line; forcing
+            // three in caused the lower lines to be sliced through the middle
+            // of the glyphs instead of dropping cleanly.
+            const mins =
+              start && end ? (end.getTime() - start.getTime()) / 60_000 : 60;
+            const showAddress = mins >= 45;
+            const showMeta = mins >= 60;
+
             return (
               // Deliberate hierarchy: time and client read first, the address is
-              // secondary, and worker/price sit quietest at the bottom. The old
-              // version gave all four lines near-equal weight.
-              <div className="flex h-full min-w-0 flex-col gap-[1px] overflow-hidden px-1.5 py-1 leading-tight">
-                <div className="flex items-baseline gap-1.5">
+              // secondary, and service/worker/price sit quietest at the bottom.
+              <div className="flex h-full min-w-0 flex-col gap-[1px] overflow-hidden px-1.5 py-1 leading-[1.2]">
+                <div className="flex min-w-0 items-baseline gap-1.5">
                   {start && (
                     <span className="shrink-0 text-[10px] font-bold tabular-nums opacity-80">
                       {start.toLocaleTimeString("en-US", {
@@ -276,12 +286,18 @@ export default function CalendarView({
                     {arg.event.title}
                   </span>
                 </div>
-                <span className="truncate text-[10.5px] opacity-85">{address}</span>
-                <span className="mt-auto truncate text-[10px] font-medium opacity-75">
-                  {serviceName}
-                  {role !== "WORKER" && ` · ${workerName}`}
-                  {role !== "WORKER" && price !== null && ` · $${price}`}
-                </span>
+
+                {showAddress && (
+                  <span className="truncate text-[10.5px] opacity-85">{address}</span>
+                )}
+
+                {showMeta && (
+                  <span className="mt-auto truncate text-[10px] font-medium opacity-75">
+                    {serviceName}
+                    {role !== "WORKER" && ` · ${workerName}`}
+                    {role !== "WORKER" && price !== null && ` · $${price}`}
+                  </span>
+                )}
               </div>
             );
           }}
