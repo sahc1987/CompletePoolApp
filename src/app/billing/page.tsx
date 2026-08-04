@@ -16,6 +16,7 @@ import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
 import UndoForm from "./UndoForm";
 import { InvoiceButton, type InvoiceData, type ReceiptData } from "./BillingPdf";
+import { getCompanyInfo } from "@/lib/company";
 import { requirePageSession } from "@/lib/guard";
 
 const METHOD_LABEL: Record<string, string> = {
@@ -113,6 +114,9 @@ export default async function BillingPage({
   await backfillBills();
   await backfillLegacyPayments();
 
+  // Printed on every invoice and receipt; configured under Settings.
+  const company = await getCompanyInfo();
+
   const bills = await prisma.bill.findMany({
     include: {
       payments: {
@@ -125,7 +129,9 @@ export default async function BillingPage({
       },
       task: {
         include: {
-          client: { select: { id: true, name: true } },
+          client: {
+            select: { id: true, name: true, address: true, phone: true, email: true },
+          },
           service: { select: { name: true } },
           // Invoice line items: the service plus each add-on at its sold price.
           pool: { select: { address: true } },
@@ -154,7 +160,13 @@ export default async function BillingPage({
       invoiceNo: invoiceNumber(b.invoiceNo),
       issuedAt: fmtDate(b.createdAt),
       clientName: b.task.client.name,
-      address: b.task.pool.address,
+      // The bill goes to the client's billing address; the pool is where the
+      // work happened. They're often the same, and the document only prints
+      // the service location separately when it actually differs.
+      address: b.task.client.address ?? b.task.pool.address,
+      serviceAddress: b.task.pool.address,
+      clientPhone: b.task.client.phone,
+      clientEmail: b.task.client.email,
       jobDate: fmtDate(b.task.date),
       serviceName: b.task.service.name,
       lineItems: [{ description: b.task.service.name, amount: base }, ...extras],
@@ -162,6 +174,7 @@ export default async function BillingPage({
       paid,
       balance,
       status: b.status,
+      company,
     };
 
     // Receipts show the balance *after* their own payment, so walk the
@@ -175,7 +188,10 @@ export default async function BillingPage({
         invoiceNo: invoiceNumber(b.invoiceNo),
         paidAt: fmtDate(p.paidAt),
         clientName: b.task.client.name,
-        address: b.task.pool.address,
+        address: b.task.client.address ?? b.task.pool.address,
+        serviceAddress: b.task.pool.address,
+        clientPhone: b.task.client.phone,
+        clientEmail: b.task.client.email,
         serviceName: b.task.service.name,
         jobDate: fmtDate(b.task.date),
         amount: amt,
@@ -185,6 +201,7 @@ export default async function BillingPage({
         invoiceTotal: amount,
         recordedBy: p.recordedBy?.name ?? null,
         note: p.note,
+        company,
       };
     });
 

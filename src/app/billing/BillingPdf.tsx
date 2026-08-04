@@ -7,18 +7,49 @@ import {
   Text,
   View,
   StyleSheet,
+  Font,
   pdf,
 } from "@react-pdf/renderer";
 
+// react-pdf hyphenates on overflow by default, which breaks emails and URLs
+// mid-word ("m.whitfield@exam-ple.com"). Contact details have to stay
+// transcribable, so words wrap whole or not at all.
+Font.registerHyphenationCallback((word) => [word]);
+
 // Invoice (issued when a job is approved and billed) and receipt (issued per
-// payment) share a header, totals block and footer, so they live together
-// rather than duplicating the layout twice.
+// payment) share a masthead, party block, table and footer, so the chrome lives
+// in one place and each document only describes its own middle.
+
+export type CompanyBlock = {
+  name: string;
+  tagline?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  taxId?: string | null;
+  paymentTerms?: string | null;
+  paymentNote?: string | null;
+  documentFooter?: string | null;
+};
+
+type PartyBlock = {
+  name: string;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+};
 
 export type InvoiceData = {
   invoiceNo: string;
   issuedAt: string;
   clientName: string;
+  /** Billing address — where the bill goes. */
   address?: string | null;
+  /** Where the work happened; shown only when it differs from the above. */
+  serviceAddress?: string | null;
+  clientPhone?: string | null;
+  clientEmail?: string | null;
   jobDate: string;
   serviceName: string;
   lineItems: { description: string; amount: number }[];
@@ -26,6 +57,7 @@ export type InvoiceData = {
   paid: number;
   balance: number;
   status: "PENDING" | "PARTIAL" | "PAID";
+  company?: CompanyBlock;
 };
 
 export type ReceiptData = {
@@ -34,6 +66,9 @@ export type ReceiptData = {
   paidAt: string;
   clientName: string;
   address?: string | null;
+  serviceAddress?: string | null;
+  clientPhone?: string | null;
+  clientEmail?: string | null;
   serviceName: string;
   jobDate: string;
   amount: number;
@@ -44,102 +79,256 @@ export type ReceiptData = {
   invoiceTotal: number;
   recordedBy?: string | null;
   note?: string | null;
+  company?: CompanyBlock;
+};
+
+const DEFAULT_COMPANY: CompanyBlock = {
+  name: "Complete Pool Service Inc.",
+  tagline: "Pool maintenance & repair",
+  paymentTerms: "Due upon receipt",
 };
 
 const usd = (n: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: "UNPAID",
-  PARTIAL: "PARTIALLY PAID",
-  PAID: "PAID IN FULL",
+  PENDING: "Unpaid",
+  PARTIAL: "Partially paid",
+  PAID: "Paid in full",
+};
+
+// Brand navy, matching the app chrome. Ink is near-black rather than pure
+// black — pure black on white prints harshly.
+const NAVY = "#1c3f7a";
+const INK = "#182233";
+const MUTED = "#6b7280";
+const RULE = "#dbe3ee";
+const GOOD = "#166534";
+const DANGER = "#b3261e";
+// A part-paid bill isn't a problem, so it reads amber rather than red.
+const WARN = "#a16207";
+
+const STATUS_COLOR: Record<string, string> = {
+  PENDING: DANGER,
+  PARTIAL: WARN,
+  PAID: GOOD,
 };
 
 const s = StyleSheet.create({
-  page: { padding: 40, fontSize: 10, color: "#1a2333", fontFamily: "Helvetica" },
-  header: { flexDirection: "row", justifyContent: "space-between", marginBottom: 22 },
-  company: { fontSize: 16, fontWeight: "bold", color: "#1c3f7a" },
-  docType: { fontSize: 20, fontWeight: "bold", color: "#1c3f7a", textAlign: "right" },
-  muted: { color: "#6b7280" },
-  right: { textAlign: "right" },
-  section: { marginBottom: 16 },
-  h2: {
-    fontSize: 9,
-    fontWeight: "bold",
-    color: "#6b7280",
-    letterSpacing: 1,
-    marginBottom: 4,
+  page: {
+    paddingTop: 44,
+    paddingHorizontal: 46,
+    paddingBottom: 78,
+    fontSize: 9.5,
+    lineHeight: 1.45,
+    color: INK,
+    fontFamily: "Helvetica",
   },
-  row: {
+
+  // --- masthead ---
+  masthead: {
     flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  brandName: { fontSize: 15, fontFamily: "Helvetica-Bold", color: NAVY, letterSpacing: 0.2 },
+  brandTag: { fontSize: 8.5, color: MUTED, marginTop: 1.5 },
+  brandLine: { fontSize: 8.5, color: MUTED },
+  brandContact: { marginTop: 6 },
+
+  docTitle: {
+    fontSize: 26,
+    fontFamily: "Helvetica-Bold",
+    color: NAVY,
+    letterSpacing: 3,
+    textAlign: "right",
+  },
+  // Reference block: label/value pairs right-aligned under the title.
+  metaRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 3 },
+  metaLabel: { fontSize: 8.5, color: MUTED, marginRight: 8 },
+  metaValue: {
+    fontSize: 8.5,
+    fontFamily: "Helvetica-Bold",
+    color: INK,
+    width: 96,
+    textAlign: "right",
+  },
+
+  // The document's strongest horizontal, closing the masthead.
+  hr: { height: 2.5, backgroundColor: NAVY, marginTop: 14 },
+
+  // --- party blocks ---
+  parties: { flexDirection: "row", marginTop: 18 },
+  party: { flex: 1, paddingRight: 18 },
+  label: {
+    fontSize: 7.5,
+    fontFamily: "Helvetica-Bold",
+    color: MUTED,
+    letterSpacing: 1.1,
+    marginBottom: 5,
+  },
+  partyName: { fontSize: 11, fontFamily: "Helvetica-Bold", color: INK, marginBottom: 2 },
+  soft: { color: MUTED },
+  bold: { fontFamily: "Helvetica-Bold" },
+
+  // --- table ---
+  thead: {
+    flexDirection: "row",
+    backgroundColor: "#f2f6fc",
+    borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderBottomColor: "#dbe3ee",
+    borderColor: RULE,
     paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginTop: 22,
   },
-  headRow: {
+  th: { fontSize: 7.5, fontFamily: "Helvetica-Bold", color: NAVY, letterSpacing: 1 },
+  tr: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderBottomColor: "#1c3f7a",
-    paddingBottom: 4,
+    borderColor: RULE,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  cDesc: { flex: 1 },
+  cAmt: { width: 84, textAlign: "right" },
+  itemName: { fontFamily: "Helvetica-Bold" },
+  itemSub: { fontSize: 8, color: MUTED, marginTop: 1 },
+
+  // --- totals ---
+  totalsWrap: { flexDirection: "row", justifyContent: "flex-end", marginTop: 14 },
+  totals: { width: 236 },
+  totalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 3.5 },
+  grandRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    backgroundColor: NAVY,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     marginTop: 6,
   },
-  cDesc: { flex: 4 },
-  cAmt: { flex: 1.4, textAlign: "right" },
-  totals: { marginTop: 14, marginLeft: "auto", width: 220 },
-  totalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 2 },
-  grand: {
-    fontSize: 12,
-    fontWeight: "bold",
-    color: "#1c3f7a",
-    borderTopWidth: 1,
-    borderTopColor: "#1c3f7a",
-    paddingTop: 4,
-    marginTop: 4,
+  grandLabel: { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#ffffff", letterSpacing: 0.8 },
+  grandValue: { fontSize: 13, fontFamily: "Helvetica-Bold", color: "#ffffff" },
+
+  // Status chip, in place of the old outlined "stamp".
+  chip: {
+    paddingVertical: 3.5,
+    paddingHorizontal: 9,
+    fontSize: 8,
+    fontFamily: "Helvetica-Bold",
+    letterSpacing: 1,
+    color: "#ffffff",
   },
-  stamp: {
-    marginTop: 18,
-    marginLeft: "auto",
-    borderWidth: 2,
-    borderColor: "#166534",
-    color: "#166534",
-    fontSize: 12,
-    fontWeight: "bold",
-    paddingVertical: 5,
-    paddingHorizontal: 12,
+  chipRow: { flexDirection: "row", justifyContent: "flex-end", marginTop: 9 },
+
+  // --- notes / terms ---
+  panel: {
+    marginTop: 20,
+    borderLeftWidth: 2.5,
+    borderColor: NAVY,
+    paddingLeft: 10,
+    paddingVertical: 2,
   },
+
+  // --- footer ---
   footer: {
     position: "absolute",
-    bottom: 32,
-    left: 40,
-    right: 40,
+    bottom: 34,
+    left: 46,
+    right: 46,
     borderTopWidth: 1,
-    borderTopColor: "#dbe3ee",
-    paddingTop: 8,
-    fontSize: 8,
-    color: "#6b7280",
-    textAlign: "center",
+    borderColor: RULE,
+    paddingTop: 7,
+    flexDirection: "row",
+    justifyContent: "space-between",
   },
+  footText: { fontSize: 7.5, color: MUTED },
 });
 
-function Header({ docType, number, dateLabel, date }: {
-  docType: string;
-  number: string;
-  dateLabel: string;
-  date: string;
+/** Joins parts of a contact line, dropping anything blank. */
+const join = (parts: (string | null | undefined)[], sep = "  ·  ") =>
+  parts.filter((p) => p && String(p).trim()).join(sep);
+
+/**
+ * Company names routinely end in "Inc." or "Co.", which collides with the
+ * period closing a sentence they're dropped into ("...Complete Pool Service
+ * Inc..").
+ */
+const midSentence = (name: string) => name.replace(/\.\s*$/, "");
+
+function Masthead({
+  company,
+  docTitle,
+  meta,
+}: {
+  company: CompanyBlock;
+  docTitle: string;
+  meta: { label: string; value: string }[];
 }) {
+  const contact = join([company.phone, company.email]);
   return (
-    <View style={s.header}>
-      <View>
-        <Text style={s.company}>Complete Pool Service Inc.</Text>
-        <Text style={s.muted}>Pool maintenance &amp; repair</Text>
+    <>
+      <View style={s.masthead}>
+        <View style={{ flex: 1, paddingRight: 24 }}>
+          <Text style={s.brandName}>{company.name}</Text>
+          {company.tagline ? <Text style={s.brandTag}>{company.tagline}</Text> : null}
+          <View style={s.brandContact}>
+            {company.address ? <Text style={s.brandLine}>{company.address}</Text> : null}
+            {contact ? <Text style={s.brandLine}>{contact}</Text> : null}
+            {company.website ? <Text style={s.brandLine}>{company.website}</Text> : null}
+            {company.taxId ? <Text style={s.brandLine}>Tax ID {company.taxId}</Text> : null}
+          </View>
+        </View>
+
+        <View>
+          <Text style={s.docTitle}>{docTitle}</Text>
+          <View style={{ marginTop: 8 }}>
+            {meta.map((m) => (
+              <View style={s.metaRow} key={m.label}>
+                <Text style={s.metaLabel}>{m.label}</Text>
+                <Text style={s.metaValue}>{m.value}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
       </View>
-      <View>
-        <Text style={s.docType}>{docType}</Text>
-        <Text style={[s.muted, s.right]}>#{number}</Text>
-        <Text style={[s.muted, s.right]}>
-          {dateLabel} {date}
-        </Text>
-      </View>
+      <View style={s.hr} />
+    </>
+  );
+}
+
+function Party({
+  label,
+  party,
+  flex = 1,
+}: {
+  label: string;
+  party: PartyBlock;
+  /** Column width relative to the other blocks on the row. */
+  flex?: number;
+}) {
+  const contact = join([party.phone, party.email]);
+  return (
+    <View style={[s.party, { flex }]}>
+      <Text style={s.label}>{label}</Text>
+      <Text style={s.partyName}>{party.name}</Text>
+      {party.address ? <Text style={s.soft}>{party.address}</Text> : null}
+      {contact ? <Text style={s.soft}>{contact}</Text> : null}
+    </View>
+  );
+}
+
+function Footer({ company, note }: { company: CompanyBlock; note: string }) {
+  return (
+    <View style={s.footer} fixed>
+      <Text style={s.footText}>{company.documentFooter || note}</Text>
+      <Text
+        style={s.footText}
+        render={({ pageNumber, totalPages }) =>
+          totalPages > 1 ? `Page ${pageNumber} of ${totalPages}` : company.name
+        }
+      />
     </View>
   );
 }
@@ -147,126 +336,219 @@ function Header({ docType, number, dateLabel, date }: {
 // Exported so the documents can be rendered outside the browser (tests, or a
 // future email/attachment path) without going through the download button.
 export function InvoiceDoc({ data }: { data: InvoiceData }) {
+  const company = { ...DEFAULT_COMPANY, ...(data.company ?? {}) };
+  const settled = data.status === "PAID";
+  const terms = company.paymentTerms || "Due upon receipt";
+  // Only worth its own column when it actually differs from the billing address.
+  const showService = !!data.serviceAddress && data.serviceAddress !== data.address;
+
   return (
-    <Document>
-      <Page size="A4" style={s.page}>
-        <Header docType="INVOICE" number={data.invoiceNo} dateLabel="Issued" date={data.issuedAt} />
+    <Document
+      title={`Invoice ${data.invoiceNo} — ${data.clientName}`}
+      author={company.name}
+      subject={`${data.serviceName} on ${data.jobDate}`}
+    >
+      <Page size="LETTER" style={s.page}>
+        <Masthead
+          company={company}
+          docTitle="INVOICE"
+          meta={[
+            { label: "Invoice no.", value: data.invoiceNo },
+            { label: "Issued", value: data.issuedAt },
+            { label: "Terms", value: terms },
+          ]}
+        />
 
-        <View style={s.section}>
-          <Text style={s.h2}>BILL TO</Text>
-          <Text>{data.clientName}</Text>
-          {data.address ? <Text style={s.muted}>{data.address}</Text> : null}
+        <View style={s.parties}>
+          {/* The client block carries the longest lines (name, street, email),
+              so it gets the widest column. */}
+          <Party
+            label="BILL TO"
+            flex={1.35}
+            party={{
+              name: data.clientName,
+              address: data.address,
+              phone: data.clientPhone,
+              email: data.clientEmail,
+            }}
+          />
+          {showService ? (
+            <View style={s.party}>
+              <Text style={s.label}>SERVICE LOCATION</Text>
+              <Text style={s.soft}>{data.serviceAddress}</Text>
+            </View>
+          ) : null}
+          <View style={[s.party, { flex: 0.55, paddingRight: 0 }]}>
+            <Text style={s.label}>SERVICE DATE</Text>
+            <Text style={s.bold}>{data.jobDate}</Text>
+          </View>
         </View>
 
-        <View style={s.section}>
-          <Text style={s.h2}>SERVICE</Text>
-          <Text>
-            {data.serviceName} · {data.jobDate}
-          </Text>
+        <View style={s.thead}>
+          <Text style={[s.th, s.cDesc]}>DESCRIPTION</Text>
+          <Text style={[s.th, s.cAmt]}>AMOUNT</Text>
         </View>
-
-        <View style={s.headRow}>
-          <Text style={[s.cDesc, { fontWeight: "bold" }]}>Description</Text>
-          <Text style={[s.cAmt, { fontWeight: "bold" }]}>Amount</Text>
-        </View>
-        {data.lineItems.map((li) => (
-          <View style={s.row} key={li.description}>
-            <Text style={s.cDesc}>{li.description}</Text>
+        {data.lineItems.map((li, i) => (
+          <View style={s.tr} key={`${li.description}-${i}`} wrap={false}>
+            <View style={s.cDesc}>
+              <Text style={s.itemName}>{li.description}</Text>
+            </View>
             <Text style={s.cAmt}>{usd(li.amount)}</Text>
           </View>
         ))}
 
-        <View style={s.totals}>
-          <View style={s.totalRow}>
-            <Text style={s.muted}>Total</Text>
-            <Text>{usd(data.total)}</Text>
-          </View>
-          <View style={s.totalRow}>
-            <Text style={s.muted}>Paid</Text>
-            <Text>{usd(data.paid)}</Text>
-          </View>
-          <View style={[s.totalRow, s.grand]}>
-            <Text>Balance due</Text>
-            <Text>{usd(data.balance)}</Text>
+        {/* Kept whole: a totals column split across a page break reads as a
+            different number than it is. */}
+        <View style={s.totalsWrap} wrap={false}>
+          <View style={s.totals}>
+            <View style={s.totalRow}>
+              <Text style={s.soft}>Subtotal</Text>
+              <Text>{usd(data.total)}</Text>
+            </View>
+            {/* A "$0.00 received" line is noise on a bill nobody has paid yet. */}
+            {data.paid > 0 ? (
+              <View style={s.totalRow}>
+                <Text style={s.soft}>Payments received</Text>
+                <Text style={{ color: GOOD }}>- {usd(data.paid)}</Text>
+              </View>
+            ) : null}
+            <View style={s.grandRow}>
+              <Text style={s.grandLabel}>{settled ? "BALANCE" : "BALANCE DUE"}</Text>
+              <Text style={s.grandValue}>{usd(data.balance)}</Text>
+            </View>
+            <View style={s.chipRow}>
+              <Text
+                style={[s.chip, { backgroundColor: STATUS_COLOR[data.status] ?? NAVY }]}
+              >
+                {(STATUS_LABEL[data.status] ?? data.status).toUpperCase()}
+              </Text>
+            </View>
           </View>
         </View>
 
-        {data.status === "PAID" ? (
-          <Text style={s.stamp}>PAID IN FULL</Text>
-        ) : (
-          <Text style={[s.totals, s.right, s.muted, { marginTop: 10 }]}>
-            {STATUS_LABEL[data.status]}
-          </Text>
-        )}
+        {!settled ? (
+          <View style={s.panel} wrap={false}>
+            <Text style={s.label}>PAYMENT</Text>
+            <Text>{terms}</Text>
+            {company.paymentNote ? <Text style={s.soft}>{company.paymentNote}</Text> : null}
+          </View>
+        ) : null}
 
-        <Text style={s.footer}>
-          Thank you for your business. Questions about this invoice? Contact
-          Complete Pool Service Inc.
-        </Text>
+        <Footer
+          company={company}
+          note={`Thank you for your business. Questions about this invoice? Contact ${midSentence(
+            company.name
+          )}.`}
+        />
       </Page>
     </Document>
   );
 }
 
 export function ReceiptDoc({ data }: { data: ReceiptData }) {
+  const company = { ...DEFAULT_COMPANY, ...(data.company ?? {}) };
+  const cleared = data.balanceAfter <= 0;
+
   return (
-    <Document>
-      <Page size="A4" style={s.page}>
-        <Header docType="RECEIPT" number={data.receiptNo} dateLabel="Paid" date={data.paidAt} />
+    <Document
+      title={`Receipt ${data.receiptNo} — ${data.clientName}`}
+      author={company.name}
+      subject={`Payment for ${data.serviceName} on ${data.jobDate}`}
+    >
+      <Page size="LETTER" style={s.page}>
+        <Masthead
+          company={company}
+          docTitle="RECEIPT"
+          meta={[
+            { label: "Receipt no.", value: data.receiptNo },
+            { label: "Date paid", value: data.paidAt },
+            { label: "Against invoice", value: data.invoiceNo },
+          ]}
+        />
 
-        <View style={s.section}>
-          <Text style={s.h2}>RECEIVED FROM</Text>
-          <Text>{data.clientName}</Text>
-          {data.address ? <Text style={s.muted}>{data.address}</Text> : null}
+        <View style={s.parties}>
+          <Party
+            label="RECEIVED FROM"
+            flex={1.2}
+            party={{
+              name: data.clientName,
+              address: data.address,
+              phone: data.clientPhone,
+              email: data.clientEmail,
+            }}
+          />
+          <View style={[s.party, { flex: 0.9, paddingRight: 0 }]}>
+            <Text style={s.label}>FOR</Text>
+            <Text style={s.bold}>{data.serviceName}</Text>
+            <Text style={s.soft}>Serviced {data.jobDate}</Text>
+          </View>
         </View>
 
-        <View style={s.section}>
-          <Text style={s.h2}>FOR</Text>
-          <Text>
-            {data.serviceName} · {data.jobDate}
-          </Text>
-          <Text style={s.muted}>Invoice #{data.invoiceNo}</Text>
+        {/* The amount is the whole point of a receipt, so it leads rather than
+            arriving at the bottom of a totals column. */}
+        <View style={[s.grandRow, { marginTop: 20 }]}>
+          <Text style={s.grandLabel}>AMOUNT RECEIVED</Text>
+          <Text style={s.grandValue}>{usd(data.amount)}</Text>
         </View>
 
-        <View style={s.headRow}>
-          <Text style={[s.cDesc, { fontWeight: "bold" }]}>Payment</Text>
-          <Text style={[s.cAmt, { fontWeight: "bold" }]}>Amount</Text>
+        <View style={s.thead}>
+          <Text style={[s.th, s.cDesc]}>PAYMENT DETAIL</Text>
+          <Text style={[s.th, s.cAmt]}>AMOUNT</Text>
         </View>
-        <View style={s.row}>
-          <Text style={s.cDesc}>
-            {data.method}
-            {data.checkNumber ? ` · check #${data.checkNumber}` : ""}
-          </Text>
+        <View style={s.tr} wrap={false}>
+          <View style={s.cDesc}>
+            <Text style={s.itemName}>
+              {data.method}
+              {data.checkNumber ? `  ·  No. ${data.checkNumber}` : ""}
+            </Text>
+            <Text style={s.itemSub}>
+              {join([
+                `Received ${data.paidAt}`,
+                data.recordedBy ? `by ${data.recordedBy}` : null,
+              ])}
+            </Text>
+          </View>
           <Text style={s.cAmt}>{usd(data.amount)}</Text>
         </View>
+
+        <View style={s.totalsWrap} wrap={false}>
+          <View style={s.totals}>
+            <View style={s.totalRow}>
+              <Text style={s.soft}>Invoice total</Text>
+              <Text>{usd(data.invoiceTotal)}</Text>
+            </View>
+            <View style={s.totalRow}>
+              <Text style={s.soft}>This payment</Text>
+              <Text style={{ color: GOOD }}>- {usd(data.amount)}</Text>
+            </View>
+            <View
+              style={[
+                s.totalRow,
+                { borderTopWidth: 1, borderColor: RULE, paddingTop: 5, marginTop: 2 },
+              ]}
+            >
+              <Text style={s.bold}>Balance remaining</Text>
+              <Text style={s.bold}>{usd(Math.max(0, data.balanceAfter))}</Text>
+            </View>
+            <View style={s.chipRow}>
+              <Text style={[s.chip, { backgroundColor: cleared ? GOOD : WARN }]}>
+                {cleared ? "PAID IN FULL" : "BALANCE OUTSTANDING"}
+              </Text>
+            </View>
+          </View>
+        </View>
+
         {data.note ? (
-          <View style={s.row}>
-            <Text style={[s.cDesc, s.muted]}>{data.note}</Text>
-            <Text style={s.cAmt} />
+          <View style={s.panel} wrap={false}>
+            <Text style={s.label}>NOTE</Text>
+            <Text>{data.note}</Text>
           </View>
         ) : null}
 
-        <View style={s.totals}>
-          <View style={s.totalRow}>
-            <Text style={s.muted}>Invoice total</Text>
-            <Text>{usd(data.invoiceTotal)}</Text>
-          </View>
-          <View style={[s.totalRow, s.grand]}>
-            <Text>Amount received</Text>
-            <Text>{usd(data.amount)}</Text>
-          </View>
-          <View style={s.totalRow}>
-            <Text style={s.muted}>Balance remaining</Text>
-            <Text>{usd(data.balanceAfter)}</Text>
-          </View>
-        </View>
-
-        {data.balanceAfter <= 0 ? <Text style={s.stamp}>PAID IN FULL</Text> : null}
-
-        <Text style={s.footer}>
-          {data.recordedBy ? `Recorded by ${data.recordedBy}. ` : ""}
-          This receipt confirms payment received by Complete Pool Service Inc.
-        </Text>
+        <Footer
+          company={company}
+          note={`This receipt confirms payment received by ${midSentence(company.name)}.`}
+        />
       </Page>
     </Document>
   );

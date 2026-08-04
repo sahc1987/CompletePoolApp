@@ -142,6 +142,25 @@ model AppSettings {
   // and week boundaries are all interpreted against this rather than the
   // server's clock, which is UTC on Vercel.
   timezone        String   @default("America/New_York")
+
+  // Business identity printed on invoices and receipts. A document with no
+  // return address, phone or tax id isn't something a customer can act on or
+  // file, so these are part of the paperwork rather than decoration.
+  companyName     String   @default("Complete Pool Service Inc.")
+  companyTagline  String?
+  companyAddress  String?
+  companyPhone    String?
+  companyEmail    String?
+  companyWebsite  String?
+  // EIN / business or contractor licence number, shown under the address.
+  companyTaxId    String?
+  // e.g. "Due upon receipt", "Net 15". Printed in the invoice terms block.
+  paymentTerms    String   @default("Due upon receipt")
+  // How to pay — appears under the totals on an unpaid invoice.
+  paymentNote     String?
+  // Closing line on both documents, e.g. warranty or thank-you wording.
+  documentFooter  String?
+
   updatedAt       DateTime @updatedAt
 }
 
