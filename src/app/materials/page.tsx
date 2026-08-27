@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
+import { Icon } from "@/components/icons";
 import { ModalButton } from "@/components/Modal";
+import { btnBlue, btnGhost, inputClass } from "@/components/styles";
 import { money, toNumber } from "@/lib/serialize";
 import CatalogForm from "../settings/CatalogForm";
 import StockForm from "./StockForm";
@@ -10,7 +13,27 @@ import { saveMaterial, toggleMaterial } from "./actions";
 import DeleteButton from "@/components/DeleteButton";
 import { requirePageSession } from "@/lib/guard";
 
-export default async function MaterialsPage() {
+/**
+ * Search and paging live in the URL, so a filtered catalog is a real link you
+ * can bookmark or share. Empty and default values are dropped.
+ */
+function materialsHref(params: Record<string, string | number | undefined>) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== "") q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `/materials?${s}` : "/materials";
+}
+
+const PER_OPTIONS = [10, 25, 50] as const;
+const DEFAULT_PER = 25;
+
+export default async function MaterialsPage({
+  searchParams,
+}: {
+  searchParams: { q?: string; per?: string; page?: string };
+}) {
   const session = await requirePageSession("ADMIN");
 
   const [materials, pendingRequests] = await Promise.all([
@@ -28,7 +51,40 @@ export default async function MaterialsPage() {
 
   const isLow = (m: (typeof materials)[number]) =>
     m.active && toNumber(m.quantityOnHand)! <= toNumber(m.reorderThreshold)!;
+  // Reorder alerts describe the whole catalog, not the page you're looking
+  // at — so they're computed before the search narrows anything.
   const lowStock = materials.filter(isLow);
+
+  // Search and paging apply to the catalog list only. It's a small table
+  // already in memory (isLow compares two columns, which the database can't
+  // do in a plain where), so both are done here rather than in the query.
+  const q = (searchParams.q ?? "").trim();
+  const needle = q.toLowerCase();
+  const found = q
+    ? materials.filter(
+        (m) =>
+          m.name.toLowerCase().includes(needle) ||
+          m.unit.toLowerCase().includes(needle)
+      )
+    : materials;
+
+  const perParam = Number(searchParams.per);
+  const per = (PER_OPTIONS as readonly number[]).includes(perParam)
+    ? perParam
+    : DEFAULT_PER;
+  // Clamped, so narrowing the search while on page 4 lands you on the last
+  // page that still exists instead of on an empty one.
+  const totalPages = Math.max(1, Math.ceil(found.length / per));
+  const page = Math.min(Math.max(1, Number(searchParams.page) || 1), totalPages);
+  const start = (page - 1) * per;
+  const pageRows = found.slice(start, start + per);
+
+  // What every link carries forward. Page is deliberately absent: a new
+  // search or page size starts you back at page 1.
+  const baseParams = {
+    q: q || undefined,
+    per: per === DEFAULT_PER ? undefined : per,
+  };
 
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
@@ -114,6 +170,41 @@ export default async function MaterialsPage() {
         </div>
       )}
 
+      {/* A plain GET form, so search works before any JS loads. */}
+      <form
+        method="get"
+        action="/materials"
+        className="mb-4 flex flex-wrap items-center gap-3"
+      >
+        {per !== DEFAULT_PER && <input type="hidden" name="per" value={per} />}
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Icon
+            name="search"
+            size={16}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-faint"
+          />
+          <input
+            type="search"
+            name="q"
+            defaultValue={q}
+            placeholder="Search materials by name or unit"
+            aria-label="Search materials"
+            className={`${inputClass} pl-9`}
+          />
+        </div>
+        <button type="submit" className={btnBlue}>
+          Search
+        </button>
+        {q && (
+          <Link href={materialsHref({ per: baseParams.per })} className={btnGhost}>
+            Clear
+          </Link>
+        )}
+        <span className="text-sm text-muted">
+          {q ? `${found.length} of ${materials.length}` : `${materials.length} total`}
+        </span>
+      </form>
+
       {/* Read-first: the catalog is scanned far more often than it's edited,
           so editing and stock changes live behind a dialog. */}
       <div className="overflow-hidden rounded-2xl border border-line/80 bg-white shadow-card">
@@ -126,7 +217,14 @@ export default async function MaterialsPage() {
         </div>
 
         <div className="divide-y divide-line/60">
-          {materials.map((m) => {
+          {pageRows.length === 0 && (
+            <p className="px-5 py-8 text-center text-muted">
+              {materials.length === 0
+                ? "No materials yet — add your first one above."
+                : `No materials match “${q}”.`}
+            </p>
+          )}
+          {pageRows.map((m) => {
             const low = isLow(m);
             const qty = toNumber(m.quantityOnHand) ?? 0;
             return (
@@ -213,6 +311,72 @@ export default async function MaterialsPage() {
         </div>
       </div>
 
+      {/* Pager. Both halves are links, so a page or size is a real URL you
+          can bookmark or share. */}
+      {found.length > 0 && (
+        <div className="mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row">
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <span className="hidden sm:inline">Rows per page</span>
+            <div className="flex gap-1 rounded-full border border-line bg-white p-1 shadow-sm">
+              {PER_OPTIONS.map((n) => (
+                <Link
+                  key={n}
+                  href={materialsHref({
+                    ...baseParams,
+                    per: n === DEFAULT_PER ? undefined : n,
+                  })}
+                  className={`rounded-full px-3 py-1 text-sm font-semibold transition ${
+                    per === n ? "bg-navy-700 text-white" : "text-ink hover:bg-chrome-100"
+                  }`}
+                >
+                  {n}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-sm">
+            <span className="tabular-nums text-muted">
+              {start + 1}–{start + pageRows.length} of {found.length}
+            </span>
+            <div className="flex items-center gap-1">
+              {page > 1 ? (
+                <Link
+                  href={materialsHref({ ...baseParams, page: page - 1 })}
+                  aria-label="Previous page"
+                  className="inline-flex h-8 items-center gap-1 rounded-full border border-line bg-white px-2 font-semibold text-ink shadow-sm transition hover:bg-chrome-100 sm:px-3"
+                >
+                  <Icon name="chevron" size={14} className="rotate-90" />
+                  <span className="hidden sm:inline">Previous</span>
+                </Link>
+              ) : (
+                <span className="inline-flex h-8 items-center gap-1 rounded-full border border-line/60 px-2 font-semibold text-faint sm:px-3">
+                  <Icon name="chevron" size={14} className="rotate-90" />
+                  <span className="hidden sm:inline">Previous</span>
+                </span>
+              )}
+              <span className="px-1 tabular-nums text-muted">
+                Page {page} of {totalPages}
+              </span>
+              {page < totalPages ? (
+                <Link
+                  href={materialsHref({ ...baseParams, page: page + 1 })}
+                  aria-label="Next page"
+                  className="inline-flex h-8 items-center gap-1 rounded-full border border-line bg-white px-2 font-semibold text-ink shadow-sm transition hover:bg-chrome-100 sm:px-3"
+                >
+                  <span className="hidden sm:inline">Next</span>
+                  <Icon name="chevron" size={14} className="-rotate-90" />
+                </Link>
+              ) : (
+                <span className="inline-flex h-8 items-center gap-1 rounded-full border border-line/60 px-2 font-semibold text-faint sm:px-3">
+                  <span className="hidden sm:inline">Next</span>
+                  <Icon name="chevron" size={14} className="-rotate-90" />
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   );
 }

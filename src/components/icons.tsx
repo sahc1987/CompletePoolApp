@@ -20,6 +20,7 @@ type IconName =
   | "phone"
   | "clock"
   | "plus"
+  | "search"
   | "close";
 
 const PATHS: Record<IconName, React.ReactNode> = {
@@ -100,6 +101,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
     </>
   ),
   chevron: <path d="m6 9 6 6 6-6" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </>
+  ),
   billing: (
     <>
       <rect x="2" y="5" width="20" height="14" rx="2" />
