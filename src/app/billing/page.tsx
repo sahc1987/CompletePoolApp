@@ -22,6 +22,8 @@ import { getBusinessTimezone } from "@/lib/schedule";
 import {
   addZonedDays,
   parseZonedDate,
+  zonedDayKey,
+  zonedDayStart,
   zonedMonthStart,
   zonedWeekStart,
 } from "@/lib/timezone";
@@ -123,10 +125,11 @@ const DEFAULT_DIR: Record<SortCol, "asc" | "desc"> = {
 const STATUS_RANK: Record<string, number> = { PENDING: 0, PARTIAL: 1, PAID: 2 };
 
 // Date scopes, keyed off the job date shown on every row.
-const RANGES = ["all", "week", "month", "custom"] as const;
+const RANGES = ["all", "day", "week", "month", "custom"] as const;
 type RangeKey = (typeof RANGES)[number];
 const RANGE_LABEL: Record<RangeKey, string> = {
   all: "All time",
+  day: "Specific date",
   week: "This week",
   month: "This month",
   custom: "Custom",
@@ -271,7 +274,13 @@ export default async function BillingPage({
   const now = new Date();
   let rangeStart: Date | null = null;
   let rangeEnd: Date | null = null; // exclusive
-  if (rangeKey === "week") {
+  if (rangeKey === "day") {
+    // A single day, reusing ?from as the chosen date so the URL keeps the
+    // same shape as a custom range. Nothing picked yet means today.
+    rangeStart =
+      (fromParam ? parseZonedDate(fromParam, tz) : null) ?? zonedDayStart(now, tz);
+    rangeEnd = addZonedDays(rangeStart, 1, tz);
+  } else if (rangeKey === "week") {
     rangeStart = zonedWeekStart(now, tz);
     rangeEnd = addZonedDays(rangeStart, 7, tz);
   } else if (rangeKey === "month") {
@@ -293,6 +302,21 @@ export default async function BillingPage({
     ];
   }
   const ranged = rangeStart !== null || rangeEnd !== null;
+
+  // The day the "Specific date" picker is sitting on, plus the days on either side —
+  // written as yyyy-mm-dd in the business zone, which is what <input
+  // type="date"> and parseZonedDate both speak.
+  const todayValue = zonedDayKey(now, tz);
+  const dayValue =
+    rangeKey === "day" && rangeStart ? zonedDayKey(rangeStart, tz) : todayValue;
+  const prevDay =
+    rangeKey === "day" && rangeStart
+      ? zonedDayKey(addZonedDays(rangeStart, -1, tz), tz)
+      : todayValue;
+  const nextDay =
+    rangeKey === "day" && rangeStart
+      ? zonedDayKey(addZonedDays(rangeStart, 1, tz), tz)
+      : todayValue;
 
   const inPeriod = (d: Date | null | undefined) => {
     if (!d) return false;
@@ -339,11 +363,13 @@ export default async function BillingPage({
     };
   });
 
-  const periodLabel = ranged
-    ? `${rangeStart ? fmtDate(rangeStart) : "the beginning"} – ${
+  const periodLabel = !ranged
+    ? null
+    : rangeKey === "day" && rangeStart
+    ? `on ${fmtDate(rangeStart)}`
+    : `${rangeStart ? fmtDate(rangeStart) : "the beginning"} – ${
         rangeEnd ? fmtDate(addZonedDays(rangeEnd, -1, tz)) : "today"
-      }`
-    : null;
+      }`;
 
   const filter =
     searchParams.status === "paid" ||
@@ -431,7 +457,8 @@ export default async function BillingPage({
   const baseParams = {
     status: filter === "all" ? undefined : filter,
     range: rangeKey === "all" ? undefined : rangeKey,
-    from: rangeKey === "custom" ? fromParam || undefined : undefined,
+    from:
+      rangeKey === "custom" || rangeKey === "day" ? fromParam || undefined : undefined,
     to: rangeKey === "custom" ? toParam || undefined : undefined,
     sort: sort ?? undefined,
     dir: sort ? dir : undefined,
@@ -509,6 +536,65 @@ export default async function BillingPage({
           </p>
         )}
       </div>
+
+      {/* One exact day. Same plain GET form as the custom range, with a
+          single input and arrows to walk a day at a time. */}
+      {rangeKey === "day" && (
+        <form
+          method="get"
+          action="/billing"
+          className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-line/80 bg-white p-4 shadow-card"
+        >
+          <input type="hidden" name="range" value="day" />
+          {filter !== "all" && <input type="hidden" name="status" value={filter} />}
+          {sort && (
+            <>
+              <input type="hidden" name="sort" value={sort} />
+              <input type="hidden" name="dir" value={dir} />
+            </>
+          )}
+          <input type="hidden" name="per" value={per} />
+          <div>
+            <label htmlFor="day" className={labelClass}>
+              Date
+            </label>
+            <input
+              id="day"
+              type="date"
+              name="from"
+              defaultValue={dayValue}
+              className={`${inputClass} sm:w-48`}
+            />
+          </div>
+          <button type="submit" className={btnBlue}>
+            Apply
+          </button>
+          <div className="flex items-center gap-1">
+            <Link
+              href={billingHref({ ...baseParams, from: prevDay })}
+              aria-label="Previous day"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white text-ink shadow-sm transition hover:bg-chrome-100"
+            >
+              <Icon name="chevron" size={14} className="rotate-90" />
+            </Link>
+            <Link
+              href={billingHref({ ...baseParams, from: nextDay })}
+              aria-label="Next day"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-line bg-white text-ink shadow-sm transition hover:bg-chrome-100"
+            >
+              <Icon name="chevron" size={14} className="-rotate-90" />
+            </Link>
+          </div>
+          {dayValue !== todayValue && (
+            <Link
+              href={billingHref({ ...baseParams, from: undefined })}
+              className={btnGhost}
+            >
+              Today
+            </Link>
+          )}
+        </form>
+      )}
 
       {/* Custom range. A plain GET form, so it works before any JS loads. */}
       {rangeKey === "custom" && (
@@ -637,7 +723,9 @@ export default async function BillingPage({
               ? "No bills yet — they're created automatically when a job is finished."
               : rangeKey === "all"
                 ? "Nothing in this view."
-                : "No bills or payments in this range."}
+                : rangeKey === "day"
+                  ? "No bills or payments on this date."
+                  : "No bills or payments in this range."}
           </p>
         </div>
       ) : (
@@ -889,13 +977,15 @@ export default async function BillingPage({
                 <Link
                   href={billingHref({ ...baseParams, page: page - 1 })}
                   aria-label="Previous page"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line bg-white text-ink shadow-sm transition hover:bg-chrome-100"
+                  className="inline-flex h-8 items-center gap-1 rounded-full border border-line bg-white px-2 font-semibold text-ink shadow-sm transition hover:bg-chrome-100 sm:px-3"
                 >
                   <Icon name="chevron" size={14} className="rotate-90" />
+                  <span className="hidden sm:inline">Previous</span>
                 </Link>
               ) : (
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line/60 text-faint">
+                <span className="inline-flex h-8 items-center gap-1 rounded-full border border-line/60 px-2 font-semibold text-faint sm:px-3">
                   <Icon name="chevron" size={14} className="rotate-90" />
+                  <span className="hidden sm:inline">Previous</span>
                 </span>
               )}
               <span className="px-1 tabular-nums text-muted">
@@ -905,12 +995,14 @@ export default async function BillingPage({
                 <Link
                   href={billingHref({ ...baseParams, page: page + 1 })}
                   aria-label="Next page"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line bg-white text-ink shadow-sm transition hover:bg-chrome-100"
+                  className="inline-flex h-8 items-center gap-1 rounded-full border border-line bg-white px-2 font-semibold text-ink shadow-sm transition hover:bg-chrome-100 sm:px-3"
                 >
+                  <span className="hidden sm:inline">Next</span>
                   <Icon name="chevron" size={14} className="-rotate-90" />
                 </Link>
               ) : (
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line/60 text-faint">
+                <span className="inline-flex h-8 items-center gap-1 rounded-full border border-line/60 px-2 font-semibold text-faint sm:px-3">
+                  <span className="hidden sm:inline">Next</span>
                   <Icon name="chevron" size={14} className="-rotate-90" />
                 </span>
               )}
