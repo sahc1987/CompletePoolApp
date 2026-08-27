@@ -18,6 +18,7 @@ import UndoForm from "./UndoForm";
 import { InvoiceButton, type InvoiceData, type ReceiptData } from "./BillingPdf";
 import { getCompanyInfo } from "@/lib/company";
 import { requirePageSession } from "@/lib/guard";
+import { getBusinessTimezone } from "@/lib/schedule";
 import {
   addZonedDays,
   parseZonedDate,
@@ -160,6 +161,11 @@ export default async function BillingPage({
   // Printed on every invoice and receipt; configured under Settings.
   const company = await getCompanyInfo();
 
+  // Job dates are stored at business-local midnight (see assign/actions), so
+  // the range boundaries have to be built in that same configured zone — the
+  // env default would slide every boundary by the offset between them.
+  const tz = await getBusinessTimezone();
+
   const bills = await prisma.bill.findMany({
     include: {
       payments: {
@@ -253,8 +259,7 @@ export default async function BillingPage({
 
   // Date range first — it's the outer scope, so the KPI strip, the tab
   // counts and the debtor list all describe the period you're looking at
-  // rather than the whole history. Rows are matched on the job date, which
-  // is the date printed on every row.
+  // rather than the whole history.
   const rangeKey: RangeKey = (RANGES as readonly string[]).includes(
     searchParams.range ?? ""
   )
@@ -267,25 +272,78 @@ export default async function BillingPage({
   let rangeStart: Date | null = null;
   let rangeEnd: Date | null = null; // exclusive
   if (rangeKey === "week") {
-    rangeStart = zonedWeekStart(now);
-    rangeEnd = addZonedDays(rangeStart, 7);
+    rangeStart = zonedWeekStart(now, tz);
+    rangeEnd = addZonedDays(rangeStart, 7, tz);
   } else if (rangeKey === "month") {
-    rangeStart = zonedMonthStart(now);
+    rangeStart = zonedMonthStart(now, tz);
     // +32 days always lands in the next month, whatever its length.
-    rangeEnd = zonedMonthStart(addZonedDays(rangeStart, 32));
+    rangeEnd = zonedMonthStart(addZonedDays(rangeStart, 32, tz), tz);
   } else if (rangeKey === "custom") {
-    rangeStart = fromParam ? parseZonedDate(fromParam) : null;
-    const toDate = toParam ? parseZonedDate(toParam) : null;
+    rangeStart = fromParam ? parseZonedDate(fromParam, tz) : null;
+    const toDate = toParam ? parseZonedDate(toParam, tz) : null;
     // "To" is the last day you want included, not the cut-off before it.
-    rangeEnd = toDate ? addZonedDays(toDate, 1) : null;
+    rangeEnd = toDate ? addZonedDays(toDate, 1, tz) : null;
   }
+  // A reversed custom range (from after to) would silently match nothing;
+  // read it the way it was obviously meant instead.
+  if (rangeStart && rangeEnd && rangeStart >= rangeEnd) {
+    [rangeStart, rangeEnd] = [
+      addZonedDays(rangeEnd, -1, tz),
+      addZonedDays(rangeStart, 1, tz),
+    ];
+  }
+  const ranged = rangeStart !== null || rangeEnd !== null;
 
-  const inRange = rows.filter((r) => {
-    const d = r.bill.task.date;
+  const inPeriod = (d: Date | null | undefined) => {
+    if (!d) return false;
     if (rangeStart && d < rangeStart) return false;
     if (rangeEnd && d >= rangeEnd) return false;
     return true;
+  };
+
+  // A bill belongs to the period if the job was done in it *or* money came in
+  // during it — so last month's job paid this month still shows up in the
+  // month you actually collected it.
+  const inRange = ranged
+    ? rows.filter(
+        (r) =>
+          inPeriod(r.bill.task.date) || r.bill.payments.some((p) => inPeriod(p.paidAt))
+      )
+    : rows;
+
+  // Re-cut each row's money to the period. "Paid" becomes what came in during
+  // it and the history behind the row lists only those payments; the balance
+  // stays the real one, because that's what you'd collect today and it's what
+  // the payment form is allowed to take.
+  const scoped = inRange.map((r) => {
+    const keep = r.bill.payments.map((p) => !ranged || inPeriod(p.paidAt));
+    const periodPayments = r.bill.payments.filter((_, i) => keep[i]);
+    const periodReceipts = r.receipts.filter((_, i) => keep[i]);
+    // Original 1-based position, so a trimmed list still reads "Payment 3".
+    const periodSeqs = r.bill.payments.map((_, i) => i + 1).filter((_, i) => keep[i]);
+    const periodReversals = ranged
+      ? r.bill.reversals.filter((x) => inPeriod(x.createdAt))
+      : r.bill.reversals;
+    return {
+      ...r,
+      /** Everything ever paid on this bill. */
+      paidAll: r.paid,
+      /** Paid inside the selected period — what the row and KPIs show. */
+      paid: paidAmount(periodPayments),
+      periodPayments,
+      periodReceipts,
+      periodSeqs,
+      periodReversals,
+      // Only a job dated inside the period counts as billed in it.
+      billedInPeriod: !ranged || inPeriod(r.bill.task.date),
+    };
   });
+
+  const periodLabel = ranged
+    ? `${rangeStart ? fmtDate(rangeStart) : "the beginning"} – ${
+        rangeEnd ? fmtDate(addZonedDays(rangeEnd, -1, tz)) : "today"
+      }`
+    : null;
 
   const filter =
     searchParams.status === "paid" ||
@@ -293,7 +351,7 @@ export default async function BillingPage({
     searchParams.status === "partial"
       ? searchParams.status
       : "all";
-  const visible = inRange.filter((r) =>
+  const visible = scoped.filter((r) =>
     filter === "all" ? true : r.bill.status.toLowerCase() === filter
   );
 
@@ -324,20 +382,29 @@ export default async function BillingPage({
     });
   }
 
-  const totalBilled = inRange.reduce((s, r) => s + r.amount, 0);
-  const paidTotal = inRange.reduce((s, r) => s + r.paid, 0);
-  const outstanding = Math.round((totalBilled - paidTotal) * 100) / 100;
+  // Three independent period figures: what was billed in it, what was
+  // collected in it, and what these bills still owe. They no longer subtract
+  // into each other, because a payment in the period can belong to a job
+  // billed outside it.
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const totalBilled = round(
+    scoped.reduce((s, r) => s + (r.billedInPeriod ? r.amount : 0), 0)
+  );
+  const paidTotal = round(scoped.reduce((s, r) => s + r.paid, 0));
+  const outstanding = round(
+    scoped.reduce((s, r) => s + Math.max(0, r.balance), 0)
+  );
 
   const counts = {
-    all: inRange.length,
-    pending: inRange.filter((r) => r.bill.status === "PENDING").length,
-    partial: inRange.filter((r) => r.bill.status === "PARTIAL").length,
-    paid: inRange.filter((r) => r.bill.status === "PAID").length,
+    all: scoped.length,
+    pending: scoped.filter((r) => r.bill.status === "PENDING").length,
+    partial: scoped.filter((r) => r.bill.status === "PARTIAL").length,
+    paid: scoped.filter((r) => r.bill.status === "PAID").length,
   };
 
   // Who still owes money, worst first.
   const byCustomer = new Map<string, { name: string; balance: number; jobs: number }>();
-  for (const r of inRange) {
+  for (const r of scoped) {
     if (r.balance <= 0) continue;
     const c = r.bill.task.client;
     const entry = byCustomer.get(c.id) ?? { name: c.name, balance: 0, jobs: 0 };
@@ -382,8 +449,10 @@ export default async function BillingPage({
 
   // Serialize a bill's payment + reversal history once (Decimals/Dates can't
   // cross to the client). Shared by the mobile cards and the desktop table.
-  const historyProps = (b: (typeof visible)[number]["bill"]) => ({
-    payments: b.payments.map((p) => ({
+  const historyProps = (r: (typeof visible)[number]) => ({
+    rangeLabel: periodLabel ? `Payments from ${periodLabel}.` : undefined,
+    payments: r.periodPayments.map((p, i) => ({
+      seq: r.periodSeqs[i],
       id: p.id,
       amount: toNumber(p.amount) ?? 0,
       method: p.method,
@@ -393,13 +462,13 @@ export default async function BillingPage({
       paidAt: p.paidAt ? p.paidAt.toISOString() : null,
       recordedBy: p.recordedBy?.name ?? null,
     })),
-    reversals: b.reversals.map((r) => ({
-      id: r.id,
-      reason: r.reason,
-      amountReversed: toNumber(r.amountReversed) ?? 0,
-      paymentCount: r.paymentCount,
-      createdAt: r.createdAt.toISOString(),
-      reversedBy: r.reversedBy?.name ?? null,
+    reversals: r.periodReversals.map((x) => ({
+      id: x.id,
+      reason: x.reason,
+      amountReversed: toNumber(x.amountReversed) ?? 0,
+      paymentCount: x.paymentCount,
+      createdAt: x.createdAt.toISOString(),
+      reversedBy: x.reversedBy?.name ?? null,
     })),
   });
 
@@ -434,12 +503,11 @@ export default async function BillingPage({
             );
           })}
         </div>
-        {rangeStart || rangeEnd ? (
+        {periodLabel && (
           <p className="text-sm text-muted">
-            Job dates {rangeStart ? fmtDate(rangeStart) : "any"} –{" "}
-            {rangeEnd ? fmtDate(addZonedDays(rangeEnd, -1)) : "any"}
+            Jobs done or payments received {periodLabel}
           </p>
-        ) : null}
+        )}
       </div>
 
       {/* Custom range. A plain GET form, so it works before any JS loads. */}
@@ -467,7 +535,6 @@ export default async function BillingPage({
               type="date"
               name="from"
               defaultValue={fromParam}
-              max={toParam || undefined}
               className={`${inputClass} sm:w-48`}
             />
           </div>
@@ -480,7 +547,6 @@ export default async function BillingPage({
               type="date"
               name="to"
               defaultValue={toParam}
-              min={fromParam || undefined}
               className={`${inputClass} sm:w-48`}
             />
           </div>
@@ -514,6 +580,14 @@ export default async function BillingPage({
           </div>
         ))}
       </div>
+
+      {periodLabel && (
+        <p className="-mt-4 mb-6 text-[13px] text-muted">
+          Billed counts jobs dated in this period, collected counts payments
+          received in it, and outstanding is the full balance still owed on
+          these bills.
+        </p>
+      )}
 
       {/* Who still owes */}
       {debtors.length > 0 && (
@@ -563,7 +637,7 @@ export default async function BillingPage({
               ? "No bills yet — they're created automatically when a job is finished."
               : rangeKey === "all"
                 ? "Nothing in this view."
-                : "No bills with a job date in this range."}
+                : "No bills or payments in this range."}
           </p>
         </div>
       ) : (
@@ -571,8 +645,9 @@ export default async function BillingPage({
         {/* Mobile: one card per bill — the whole row is visible without any
             sideways scrolling, and the actions sit at the bottom. */}
         <div className="space-y-3 sm:hidden">
-          {pageRows.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
-            const last = b.payments[b.payments.length - 1];
+          {pageRows.map((row) => {
+            const { bill: b, amount, paid, paidAll, balance, invoice } = row;
+            const last = row.periodPayments[row.periodPayments.length - 1];
             return (
               <div
                 key={b.id}
@@ -604,6 +679,11 @@ export default async function BillingPage({
                     <div className={`mt-0.5 font-bold tabular-nums ${paid > 0 ? "text-good" : "text-faint"}`}>
                       {paid > 0 ? money(paid) : "—"}
                     </div>
+                    {paidAll !== paid && (
+                      <div className="text-[10px] tabular-nums text-faint">
+                        {money(paidAll)} all time
+                      </div>
+                    )}
                   </div>
                   <div>
                     <div className="text-[11px] text-muted">Balance</div>
@@ -622,14 +702,14 @@ export default async function BillingPage({
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <InvoiceButton data={invoice} />
-                  {(b.payments.length > 0 || b.reversals.length > 0) && (
+                  {(row.periodPayments.length > 0 || row.periodReversals.length > 0) && (
                     <PaymentsButton
                       clientName={b.task.client.name}
                       total={amount}
-                      paid={paid}
+                      paid={paidAll}
                       balance={balance}
-                      receipts={receipts}
-                      {...historyProps(b)}
+                      receipts={row.periodReceipts}
+                      {...historyProps(row)}
                     />
                   )}
                   {isAdmin && balance > 0 && (
@@ -660,9 +740,13 @@ export default async function BillingPage({
               </tr>
             </thead>
             <tbody className="divide-y divide-line/60">
-              {pageRows.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
-                const pct = amount > 0 ? Math.min(100, Math.round((paid / amount) * 100)) : 0;
-                const last = b.payments[b.payments.length - 1];
+              {pageRows.map((row) => {
+                const { bill: b, amount, paid, paidAll, balance, invoice } = row;
+                // Progress is against everything ever paid — the real state of
+                // the bill, not the slice the filter is showing.
+                const pct =
+                  amount > 0 ? Math.min(100, Math.round((paidAll / amount) * 100)) : 0;
+                const last = row.periodPayments[row.periodPayments.length - 1];
                 return (
                   <tr key={b.id} className="transition-colors hover:bg-chrome-100/40">
                     {/* Job: one idea, one cell — who + what + when */}
@@ -689,15 +773,16 @@ export default async function BillingPage({
                           {fmtDate(last.paidAt)}
                         </div>
                       )}
-                      {(b.payments.length > 0 || b.reversals.length > 0) && (
+                      {(row.periodPayments.length > 0 ||
+                        row.periodReversals.length > 0) && (
                         <div className="mt-1">
                           <PaymentsButton
                             clientName={b.task.client.name}
                             total={amount}
-                            paid={paid}
+                            paid={paidAll}
                             balance={balance}
-                            receipts={receipts}
-                            {...historyProps(b)}
+                            receipts={row.periodReceipts}
+                            {...historyProps(row)}
                           />
                         </div>
                       )}
@@ -715,8 +800,13 @@ export default async function BillingPage({
                       >
                         {paid > 0 ? money(paid) : "—"}
                       </div>
+                      {paidAll !== paid && (
+                        <div className="text-[11px] tabular-nums text-faint">
+                          {money(paidAll)} all time
+                        </div>
+                      )}
                       {/* Progress makes a partial payment readable at a glance */}
-                      {paid > 0 && balance > 0 && (
+                      {paidAll > 0 && balance > 0 && (
                         <div className="ml-auto mt-1.5 h-1 w-16 overflow-hidden rounded-full bg-line">
                           <div
                             className="h-full rounded-full bg-good"

@@ -19,6 +19,9 @@ export type PaymentRow = {
   note: string | null;
   paidAt: string | null;
   recordedBy: string | null;
+  /** Position among *all* the bill's payments — stays 3 of 5 even when the
+   *  list is trimmed to a date range. */
+  seq?: number;
 };
 
 export type ReversalRow = {
@@ -55,6 +58,7 @@ export default function PaymentsButton({
   payments,
   receipts = [],
   reversals = [],
+  rangeLabel,
 }: {
   clientName: string;
   total: number;
@@ -64,6 +68,9 @@ export default function PaymentsButton({
   /** Receipt payload per payment, in the same order. */
   receipts?: ReceiptData[];
   reversals?: ReversalRow[];
+  /** Set when the page's date filter has trimmed these lists, so the modal
+   *  doesn't read as the bill's whole history. */
+  rangeLabel?: string;
 }) {
   const count = payments.length;
   const label =
@@ -104,6 +111,12 @@ export default function PaymentsButton({
           </div>
         </div>
 
+        {rangeLabel && (
+          <p className="-mt-2 text-[12px] text-muted">
+            {rangeLabel} The totals above are the bill&rsquo;s full figures.
+          </p>
+        )}
+
         {payments.length > 0 ? (
           <ol className="space-y-2">
             {payments.map((p, i) => (
@@ -113,7 +126,7 @@ export default function PaymentsButton({
               >
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-ink">
-                    Payment {i + 1}
+                    Payment {p.seq ?? i + 1}
                     <span className="ml-2 font-normal text-faint">
                       {METHOD_LABEL[p.method] ?? p.method}
                       {p.checkNumber ? ` #${p.checkNumber}` : ""}
@@ -142,7 +155,11 @@ export default function PaymentsButton({
             ))}
           </ol>
         ) : (
-          <p className="text-sm text-muted">No payments are currently recorded on this bill.</p>
+          <p className="text-sm text-muted">
+            {rangeLabel
+              ? "No payments on this bill in the selected range."
+              : "No payments are currently recorded on this bill."}
+          </p>
         )}
 
         {reversals.length > 0 && (
