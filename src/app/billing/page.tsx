@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { Icon } from "@/components/icons";
-import { card } from "@/components/styles";
+import { btnBlue, btnGhost, card, inputClass, labelClass } from "@/components/styles";
 import { money, toNumber } from "@/lib/serialize";
 import {
   backfillBills,
@@ -18,6 +18,12 @@ import UndoForm from "./UndoForm";
 import { InvoiceButton, type InvoiceData, type ReceiptData } from "./BillingPdf";
 import { getCompanyInfo } from "@/lib/company";
 import { requirePageSession } from "@/lib/guard";
+import {
+  addZonedDays,
+  parseZonedDate,
+  zonedMonthStart,
+  zonedWeekStart,
+} from "@/lib/timezone";
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: "Cash",
@@ -33,6 +39,20 @@ const STATUS_STYLE: Record<string, string> = {
   PAID: "bg-good/10 text-good",
 };
 
+/**
+ * Every control on this page is a link, so each one has to carry the whole
+ * view along with it — change one thing, keep the rest. Undefined/empty and
+ * default values are dropped so the common URL stays short.
+ */
+function billingHref(params: Record<string, string | number | undefined>) {
+  const q = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== "") q.set(k, String(v));
+  }
+  const s = q.toString();
+  return s ? `/billing?${s}` : "/billing";
+}
+
 function fmtDate(d: Date | null | undefined) {
   return d
     ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
@@ -41,13 +61,14 @@ function fmtDate(d: Date | null | undefined) {
 
 // A clickable column header. Clicking the active column flips direction;
 // clicking a new one starts at that column's natural direction. The current
-// filter tab rides along so sorting never drops your view.
+// tab and date range ride along so sorting never drops your view — but the
+// page resets, since row 1 of a re-sorted list is a different row.
 function SortHeader({
   label,
   col,
   sort,
   dir,
-  filter,
+  base,
   align = "left",
   thClass = "",
 }: {
@@ -55,14 +76,14 @@ function SortHeader({
   col: SortCol;
   sort: SortCol | null;
   dir: "asc" | "desc";
-  filter: string;
+  base: Record<string, string | number | undefined>;
   align?: "left" | "right";
   /** Extra classes on the <th> — used to hide lower-priority columns on phones. */
   thClass?: string;
 }) {
   const active = sort === col;
   const nextDir = active ? (dir === "asc" ? "desc" : "asc") : DEFAULT_DIR[col];
-  const href = `/billing?status=${filter}&sort=${col}&dir=${nextDir}`;
+  const href = billingHref({ ...base, sort: col, dir: nextDir });
 
   return (
     <th className={`px-3 py-3 font-semibold sm:px-5 ${align === "right" ? "text-right" : "text-left"} ${thClass}`}>
@@ -100,10 +121,32 @@ const DEFAULT_DIR: Record<SortCol, "asc" | "desc"> = {
 // Most actionable first when ascending.
 const STATUS_RANK: Record<string, number> = { PENDING: 0, PARTIAL: 1, PAID: 2 };
 
+// Date scopes, keyed off the job date shown on every row.
+const RANGES = ["all", "week", "month", "custom"] as const;
+type RangeKey = (typeof RANGES)[number];
+const RANGE_LABEL: Record<RangeKey, string> = {
+  all: "All time",
+  week: "This week",
+  month: "This month",
+  custom: "Custom",
+};
+
+const PER_OPTIONS = [10, 25, 50] as const;
+const DEFAULT_PER = 10;
+
 export default async function BillingPage({
   searchParams,
 }: {
-  searchParams: { status?: string; sort?: string; dir?: string };
+  searchParams: {
+    status?: string;
+    sort?: string;
+    dir?: string;
+    range?: string;
+    from?: string;
+    to?: string;
+    per?: string;
+    page?: string;
+  };
 }) {
   const session = await requirePageSession("ADMIN", "OWNER");
 
@@ -208,13 +251,49 @@ export default async function BillingPage({
     return { bill: b, amount, paid, balance, invoice, receipts };
   });
 
+  // Date range first — it's the outer scope, so the KPI strip, the tab
+  // counts and the debtor list all describe the period you're looking at
+  // rather than the whole history. Rows are matched on the job date, which
+  // is the date printed on every row.
+  const rangeKey: RangeKey = (RANGES as readonly string[]).includes(
+    searchParams.range ?? ""
+  )
+    ? (searchParams.range as RangeKey)
+    : "all";
+  const fromParam = (searchParams.from ?? "").trim();
+  const toParam = (searchParams.to ?? "").trim();
+
+  const now = new Date();
+  let rangeStart: Date | null = null;
+  let rangeEnd: Date | null = null; // exclusive
+  if (rangeKey === "week") {
+    rangeStart = zonedWeekStart(now);
+    rangeEnd = addZonedDays(rangeStart, 7);
+  } else if (rangeKey === "month") {
+    rangeStart = zonedMonthStart(now);
+    // +32 days always lands in the next month, whatever its length.
+    rangeEnd = zonedMonthStart(addZonedDays(rangeStart, 32));
+  } else if (rangeKey === "custom") {
+    rangeStart = fromParam ? parseZonedDate(fromParam) : null;
+    const toDate = toParam ? parseZonedDate(toParam) : null;
+    // "To" is the last day you want included, not the cut-off before it.
+    rangeEnd = toDate ? addZonedDays(toDate, 1) : null;
+  }
+
+  const inRange = rows.filter((r) => {
+    const d = r.bill.task.date;
+    if (rangeStart && d < rangeStart) return false;
+    if (rangeEnd && d >= rangeEnd) return false;
+    return true;
+  });
+
   const filter =
     searchParams.status === "paid" ||
     searchParams.status === "pending" ||
     searchParams.status === "partial"
       ? searchParams.status
       : "all";
-  const visible = rows.filter((r) =>
+  const visible = inRange.filter((r) =>
     filter === "all" ? true : r.bill.status.toLowerCase() === filter
   );
 
@@ -245,20 +324,20 @@ export default async function BillingPage({
     });
   }
 
-  const totalBilled = rows.reduce((s, r) => s + r.amount, 0);
-  const paidTotal = rows.reduce((s, r) => s + r.paid, 0);
+  const totalBilled = inRange.reduce((s, r) => s + r.amount, 0);
+  const paidTotal = inRange.reduce((s, r) => s + r.paid, 0);
   const outstanding = Math.round((totalBilled - paidTotal) * 100) / 100;
 
   const counts = {
-    all: rows.length,
-    pending: rows.filter((r) => r.bill.status === "PENDING").length,
-    partial: rows.filter((r) => r.bill.status === "PARTIAL").length,
-    paid: rows.filter((r) => r.bill.status === "PAID").length,
+    all: inRange.length,
+    pending: inRange.filter((r) => r.bill.status === "PENDING").length,
+    partial: inRange.filter((r) => r.bill.status === "PARTIAL").length,
+    paid: inRange.filter((r) => r.bill.status === "PAID").length,
   };
 
   // Who still owes money, worst first.
   const byCustomer = new Map<string, { name: string; balance: number; jobs: number }>();
-  for (const r of rows) {
+  for (const r of inRange) {
     if (r.balance <= 0) continue;
     const c = r.bill.task.client;
     const entry = byCustomer.get(c.id) ?? { name: c.name, balance: 0, jobs: 0 };
@@ -267,6 +346,32 @@ export default async function BillingPage({
     byCustomer.set(c.id, entry);
   }
   const debtors = [...byCustomer.values()].sort((a, b) => b.balance - a.balance);
+
+  // Pagination. The page is clamped, so narrowing a filter while sitting on
+  // page 6 lands you on the last page that still exists instead of on an
+  // empty one.
+  const perParam = Number(searchParams.per);
+  const per = (PER_OPTIONS as readonly number[]).includes(perParam)
+    ? perParam
+    : DEFAULT_PER;
+  const totalPages = Math.max(1, Math.ceil(visible.length / per));
+  const page = Math.min(Math.max(1, Number(searchParams.page) || 1), totalPages);
+  const start = (page - 1) * per;
+  const pageRows = visible.slice(start, start + per);
+
+  // What every link on this page carries forward. Page is deliberately absent:
+  // changing tab, sort or range starts you back at page 1.
+  const baseParams = {
+    status: filter === "all" ? undefined : filter,
+    range: rangeKey === "all" ? undefined : rangeKey,
+    from: rangeKey === "custom" ? fromParam || undefined : undefined,
+    to: rangeKey === "custom" ? toParam || undefined : undefined,
+    sort: sort ?? undefined,
+    dir: sort ? dir : undefined,
+    per: per === DEFAULT_PER ? undefined : per,
+  };
+  // The sort headers set their own sort/dir.
+  const { sort: _s, dir: _d, ...sortBase } = baseParams;
 
   const tabs = [
     { key: "all", label: `All (${counts.all})` },
@@ -309,6 +414,86 @@ export default async function BillingPage({
             : "Read-only overview."
         }`}
       />
+
+      {/* Date scope. It sits above the totals because it governs them —
+          everything below describes the period selected here. */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap gap-1 rounded-full border border-line bg-white p-1 shadow-sm sm:w-fit">
+          {RANGES.map((key) => {
+            const active = rangeKey === key;
+            return (
+              <Link
+                key={key}
+                href={billingHref({ ...baseParams, range: key === "all" ? undefined : key })}
+                className={`rounded-full px-4 py-1.5 text-center text-sm font-semibold transition ${
+                  active ? "bg-navy-700 text-white" : "text-ink hover:bg-chrome-100"
+                }`}
+              >
+                {RANGE_LABEL[key]}
+              </Link>
+            );
+          })}
+        </div>
+        {rangeStart || rangeEnd ? (
+          <p className="text-sm text-muted">
+            Job dates {rangeStart ? fmtDate(rangeStart) : "any"} –{" "}
+            {rangeEnd ? fmtDate(addZonedDays(rangeEnd, -1)) : "any"}
+          </p>
+        ) : null}
+      </div>
+
+      {/* Custom range. A plain GET form, so it works before any JS loads. */}
+      {rangeKey === "custom" && (
+        <form
+          method="get"
+          action="/billing"
+          className="mb-6 flex flex-wrap items-end gap-3 rounded-2xl border border-line/80 bg-white p-4 shadow-card"
+        >
+          <input type="hidden" name="range" value="custom" />
+          {filter !== "all" && <input type="hidden" name="status" value={filter} />}
+          {sort && (
+            <>
+              <input type="hidden" name="sort" value={sort} />
+              <input type="hidden" name="dir" value={dir} />
+            </>
+          )}
+          <input type="hidden" name="per" value={per} />
+          <div>
+            <label htmlFor="from" className={labelClass}>
+              From
+            </label>
+            <input
+              id="from"
+              type="date"
+              name="from"
+              defaultValue={fromParam}
+              max={toParam || undefined}
+              className={`${inputClass} sm:w-48`}
+            />
+          </div>
+          <div>
+            <label htmlFor="to" className={labelClass}>
+              To
+            </label>
+            <input
+              id="to"
+              type="date"
+              name="to"
+              defaultValue={toParam}
+              min={fromParam || undefined}
+              className={`${inputClass} sm:w-48`}
+            />
+          </div>
+          <button type="submit" className={btnBlue}>
+            Apply
+          </button>
+          {(fromParam || toParam) && (
+            <Link href={billingHref({ ...baseParams, range: "custom", from: undefined, to: undefined })} className={btnGhost}>
+              Clear
+            </Link>
+          )}
+        </form>
+      )}
 
       {/* A compact 3-up KPI strip on phones (one shared card, hairline
           dividers) that expands into three roomy stat cards from sm up. */}
@@ -360,7 +545,7 @@ export default async function BillingPage({
           return (
             <Link
               key={t.key}
-              href={`/billing?status=${t.key}${sort ? `&sort=${sort}&dir=${dir}` : ""}`}
+              href={billingHref({ ...baseParams, status: t.key === "all" ? undefined : t.key })}
               className={`rounded-full px-4 py-1.5 text-center text-sm font-semibold transition ${
                 active ? "bg-navy-700 text-white" : "text-ink hover:bg-chrome-100"
               }`}
@@ -376,7 +561,9 @@ export default async function BillingPage({
           <p className="text-muted">
             {rows.length === 0
               ? "No bills yet — they're created automatically when a job is finished."
-              : "Nothing in this view."}
+              : rangeKey === "all"
+                ? "Nothing in this view."
+                : "No bills with a job date in this range."}
           </p>
         </div>
       ) : (
@@ -384,7 +571,7 @@ export default async function BillingPage({
         {/* Mobile: one card per bill — the whole row is visible without any
             sideways scrolling, and the actions sit at the bottom. */}
         <div className="space-y-3 sm:hidden">
-          {visible.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
+          {pageRows.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
             const last = b.payments[b.payments.length - 1];
             return (
               <div
@@ -462,18 +649,18 @@ export default async function BillingPage({
           <table className="w-full border-collapse text-sm sm:min-w-[46rem]">
             <thead>
               <tr className="border-b border-line/70 bg-surface/60 text-[11px] uppercase tracking-wider text-faint">
-                <SortHeader label="Job" col="job" sort={sort} dir={dir} filter={filter} />
-                <SortHeader label="Status" col="status" sort={sort} dir={dir} filter={filter} />
-                <SortHeader label="Total" col="total" sort={sort} dir={dir} filter={filter} align="right" thClass="hidden md:table-cell" />
-                <SortHeader label="Paid" col="paid" sort={sort} dir={dir} filter={filter} align="right" />
-                <SortHeader label="Balance" col="balance" sort={sort} dir={dir} filter={filter} align="right" />
+                <SortHeader label="Job" col="job" sort={sort} dir={dir} base={sortBase} />
+                <SortHeader label="Status" col="status" sort={sort} dir={dir} base={sortBase} />
+                <SortHeader label="Total" col="total" sort={sort} dir={dir} base={sortBase} align="right" thClass="hidden md:table-cell" />
+                <SortHeader label="Paid" col="paid" sort={sort} dir={dir} base={sortBase} align="right" />
+                <SortHeader label="Balance" col="balance" sort={sort} dir={dir} base={sortBase} align="right" />
                 <th className="px-3 py-3 text-right font-semibold sm:px-5">
                   {isAdmin ? "" : "State"}
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-line/60">
-              {visible.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
+              {pageRows.map(({ bill: b, amount, paid, balance, invoice, receipts }) => {
                 const pct = amount > 0 ? Math.min(100, Math.round((paid / amount) * 100)) : 0;
                 const last = b.payments[b.payments.length - 1];
                 return (
@@ -578,6 +765,67 @@ export default async function BillingPage({
               })}
             </tbody>
           </table>
+        </div>
+
+        {/* Pager. Both halves are links, so a page or size is a real URL you
+            can bookmark or share. */}
+        <div className="mt-4 flex flex-col items-center justify-between gap-3 sm:flex-row">
+          <div className="flex items-center gap-2 text-sm text-muted">
+            <span className="hidden sm:inline">Rows per page</span>
+            <div className="flex gap-1 rounded-full border border-line bg-white p-1 shadow-sm">
+              {PER_OPTIONS.map((n) => (
+                <Link
+                  key={n}
+                  href={billingHref({
+                    ...baseParams,
+                    per: n === DEFAULT_PER ? undefined : n,
+                  })}
+                  className={`rounded-full px-3 py-1 text-sm font-semibold transition ${
+                    per === n ? "bg-navy-700 text-white" : "text-ink hover:bg-chrome-100"
+                  }`}
+                >
+                  {n}
+                </Link>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-sm">
+            <span className="tabular-nums text-muted">
+              {start + 1}–{start + pageRows.length} of {visible.length}
+            </span>
+            <div className="flex items-center gap-1">
+              {page > 1 ? (
+                <Link
+                  href={billingHref({ ...baseParams, page: page - 1 })}
+                  aria-label="Previous page"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line bg-white text-ink shadow-sm transition hover:bg-chrome-100"
+                >
+                  <Icon name="chevron" size={14} className="rotate-90" />
+                </Link>
+              ) : (
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line/60 text-faint">
+                  <Icon name="chevron" size={14} className="rotate-90" />
+                </span>
+              )}
+              <span className="px-1 tabular-nums text-muted">
+                Page {page} of {totalPages}
+              </span>
+              {page < totalPages ? (
+                <Link
+                  href={billingHref({ ...baseParams, page: page + 1 })}
+                  aria-label="Next page"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line bg-white text-ink shadow-sm transition hover:bg-chrome-100"
+                >
+                  <Icon name="chevron" size={14} className="-rotate-90" />
+                </Link>
+              ) : (
+                <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-line/60 text-faint">
+                  <Icon name="chevron" size={14} className="-rotate-90" />
+                </span>
+              )}
+            </div>
+          </div>
         </div>
         </>
       )}

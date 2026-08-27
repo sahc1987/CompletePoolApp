@@ -144,3 +144,9 @@ export function zonedWeekStart(date: Date, tz: string = BUSINESS_TZ): Date {
   const shift = (zonedDayOfWeek(date, tz) + 6) % 7; // Monday-first
   return addZonedDays(date, -shift, tz);
 }
+
+/** The 1st (business-local midnight) of the month containing `date`. */
+export function zonedMonthStart(date: Date, tz: string = BUSINESS_TZ): Date {
+  const p = zonedParts(date, tz);
+  return zonedTimeToUtc(p.year, p.month, 1, 0, 0, tz);
+}
