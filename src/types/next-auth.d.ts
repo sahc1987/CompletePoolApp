@@ -23,6 +23,8 @@ declare module "next-auth/jwt" {
     role: Role;
     /** Epoch ms of the last database re-check of `role`/`active`. */
     checkedAt?: number;
+    /** Epoch ms the session was created at sign-in. Renewals never move it. */
+    issuedAt?: number;
     /** The account no longer exists or is inactive — treat as signed out. */
     revoked?: boolean;
   }

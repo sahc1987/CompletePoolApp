@@ -3,6 +3,11 @@ import CredentialsProvider from "next-auth/providers/credentials";
 import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import {
+  ABSOLUTE_MAX_AGE_MS,
+  SESSION_MAX_AGE_S,
+  SESSION_REFRESH_S,
+} from "./authConfig";
+import {
   clearFailures,
   clearSourceFailures,
   clientIp,
@@ -25,7 +30,14 @@ export { MAX_LOGIN_ATTEMPTS, LOCKOUT_SECONDS } from "./loginThrottle";
 const REVALIDATE_MS = 60_000;
 
 export const authOptions: NextAuthOptions = {
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: SESSION_MAX_AGE_S,
+    // Only read by the database strategy, but kept in step so the two can't
+    // drift apart if the strategy ever changes.
+    updateAge: SESSION_REFRESH_S,
+  },
+  jwt: { maxAge: SESSION_MAX_AGE_S },
   pages: { signIn: "/login" },
   providers: [
     CredentialsProvider({
@@ -72,6 +84,17 @@ export const authOptions: NextAuthOptions = {
         token.role = user.role;
         token.id = user.id;
         token.checkedAt = Date.now();
+        token.issuedAt = Date.now();
+        token.revoked = false;
+        return token;
+      }
+
+      // A renewal may extend a session but never restart it. Tokens minted
+      // before `issuedAt` existed have no anchor, so let their first refresh
+      // start the clock rather than signing everyone out on deploy.
+      token.issuedAt ??= Date.now();
+      if (Date.now() - token.issuedAt > ABSOLUTE_MAX_AGE_MS) {
+        token.revoked = true;
         return token;
       }
 

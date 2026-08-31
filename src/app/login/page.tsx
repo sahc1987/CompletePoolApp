@@ -64,6 +64,36 @@ function Icon({
   );
 }
 
+/**
+ * Where to land after signing in. Both the middleware and the session renewer
+ * append the page the user was on when their session lapsed, so they resume
+ * where they left off instead of always at the calendar.
+ *
+ * Only a path on this site is accepted: a caller can put anything in the query
+ * string, and "//evil.example" or "https://evil.example" would otherwise turn
+ * the login page into an open redirect that carries the user off-site right
+ * after they've typed their password.
+ */
+function safeCallbackUrl(): string {
+  const raw = new URLSearchParams(window.location.search).get("callbackUrl");
+  if (!raw) return "/calendar";
+  let path = raw;
+  // Middleware writes an absolute URL; accept it only if it's our own origin.
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const url = new URL(raw);
+      if (url.origin !== window.location.origin) return "/calendar";
+      path = url.pathname + url.search;
+    } catch {
+      return "/calendar";
+    }
+  }
+  if (!path.startsWith("/") || path.startsWith("//")) return "/calendar";
+  // Bouncing back to /login would strand them on the form they just cleared.
+  if (path === "/login" || path.startsWith("/login?")) return "/calendar";
+  return path;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -127,7 +157,7 @@ export default function LoginPage() {
     }
 
     setLoading(false);
-    router.push("/calendar");
+    router.push(safeCallbackUrl());
     router.refresh();
   }
 

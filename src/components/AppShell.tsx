@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import type { Role } from "@prisma/client";
 import { Icon, type IconName } from "./icons";
 import NotificationBell from "./NotificationBell";
+import SessionKeepAlive from "./SessionKeepAlive";
 import UserMenu from "./UserMenu";
 
 type NavLink = { href: string; label: string; icon: IconName };
@@ -49,6 +50,8 @@ export default function AppShell({
 
   return (
     <div className="min-h-screen">
+      {/* Renews the session cookie while this tab is in use — see the component. */}
+      <SessionKeepAlive />
       <header className="sticky top-0 z-40 border-b border-line/70 bg-white/85 backdrop-blur">
         {/* Top row: logo + identity */}
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2.5">
