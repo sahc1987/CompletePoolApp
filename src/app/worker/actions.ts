@@ -4,6 +4,11 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
+import {
+  parseMaterialUsage,
+  hasLoggedMaterials,
+  recordTaskMaterials,
+} from "@/lib/materials";
 import type { ActionState } from "@/lib/actions";
 
 // Load a task and confirm it belongs to the signed-in worker. Returns null
@@ -41,50 +46,16 @@ export async function submitTask(
   if (!task) return { error: "Task not found." };
   if (task.status !== "IN_PROGRESS") return { error: "This task isn't in progress." };
 
-  // Materials arrive as qty_<materialId> inputs; only positive quantities count.
-  const usage: { materialId: string; qty: number }[] = [];
-  for (const [key, value] of formData.entries()) {
-    if (key.startsWith("qty_")) {
-      const qty = Number(value);
-      if (Number.isFinite(qty) && qty > 0) {
-        usage.push({ materialId: key.slice(4), qty });
-      }
-    }
-  }
+  const usage = parseMaterialUsage(formData);
 
   // Stock decrements once, at the first submit. If this task was already
   // submitted before (then flagged and reworked), the material was counted
   // already — don't double-decrement. FLAGGED never reverses stock.
-  const alreadyLogged = await prisma.stockMovement.count({
-    where: { taskId, type: "USAGE" },
-  });
+  const alreadyLogged = await hasLoggedMaterials(taskId);
 
   await prisma.$transaction(async (tx) => {
-    if (usage.length > 0 && alreadyLogged === 0) {
-      const mats = await tx.material.findMany({
-        where: { id: { in: usage.map((u) => u.materialId) } },
-      });
-      const byId = new Map(mats.map((m) => [m.id, m]));
-      for (const u of usage) {
-        const m = byId.get(u.materialId);
-        if (!m) continue;
-        await tx.taskMaterial.create({
-          data: {
-            taskId,
-            materialId: m.id,
-            quantityUsed: u.qty,
-            costPriceAtTimeOfUse: m.costPrice,
-            customerPriceAtTimeOfUse: m.customerPrice,
-          },
-        });
-        await tx.material.update({
-          where: { id: m.id },
-          data: { quantityOnHand: { decrement: u.qty } },
-        });
-        await tx.stockMovement.create({
-          data: { materialId: m.id, type: "USAGE", quantity: -u.qty, taskId },
-        });
-      }
+    if (!alreadyLogged) {
+      await recordTaskMaterials(tx, taskId, usage);
     }
     await tx.task.update({
       where: { id: taskId },

@@ -25,6 +25,9 @@ export default async function CalendarPage() {
       service: { select: { name: true } },
       worker: { select: { name: true } },
       bill: { include: { payments: true } },
+      // What the job has already consumed, so the finish form can show it
+      // instead of inviting a second entry.
+      materials: { include: { material: { select: { name: true, unit: true } } } },
     },
     orderBy: { startTime: "asc" },
   });
@@ -48,6 +51,13 @@ export default async function CalendarPage() {
       start: start.toISOString(),
       end: end.toISOString(),
       status: t.status,
+      // Quantities are safe for anyone who can see the job; the prices they
+      // were logged at are not, so they stay out of the payload.
+      materialsUsed: t.materials.map((m) => ({
+        name: m.material.name,
+        unit: m.material.unit,
+        quantityUsed: toNumber(m.quantityUsed) ?? 0,
+      })),
       // Billing is admin-only (workers never see money).
       bill:
         isAdmin && t.bill
@@ -64,7 +74,7 @@ export default async function CalendarPage() {
   });
 
   // Only admins can edit; fetch the option lists they need for the editor.
-  const [workers, services] = isAdmin
+  const [workers, services, materials] = isAdmin
     ? await Promise.all([
         prisma.user.findMany({
           where: { role: "WORKER", active: true },
@@ -75,8 +85,15 @@ export default async function CalendarPage() {
           select: { id: true, name: true, basePrice: true, defaultDurationMin: true },
           orderBy: { name: "asc" },
         }),
+        // Retired materials stay off the list — they can't be used on new work,
+        // though jobs that already consumed them keep their history.
+        prisma.material.findMany({
+          where: { active: true },
+          select: { id: true, name: true, unit: true },
+          orderBy: { name: "asc" },
+        }),
       ])
-    : [[], []];
+    : [[], [], []];
 
   // Build the date from local parts. toISOString() is UTC, which lands the
   // calendar on tomorrow every evening once local time crosses UTC midnight
@@ -109,6 +126,7 @@ export default async function CalendarPage() {
           basePrice: toNumber(s.basePrice) ?? 0,
           defaultDurationMin: s.defaultDurationMin,
         }))}
+        materials={materials}
       />
     </AppShell>
   );

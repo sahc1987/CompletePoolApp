@@ -37,11 +37,21 @@ export type CalendarTask = {
   start: string;
   end: string;
   status: TaskStatus;
+  /** Material already logged against the job, if it has been closed out. */
+  materialsUsed: TaskMaterialUsed[];
   // Null until the job is finished (or for non-admins, who don't see money).
   bill: CalendarBill | null;
 };
 
+/** A material this job consumed. Quantities only — no prices. */
+export type TaskMaterialUsed = {
+  name: string;
+  unit: string;
+  quantityUsed: number;
+};
+
 type Worker = { id: string; name: string };
+type MaterialOption = { id: string; name: string; unit: string };
 type Service = { id: string; name: string; basePrice: number; defaultDurationMin: number };
 
 /** "08:00" -> "8 AM", "13:30" -> "1:30 PM". */
@@ -74,6 +84,7 @@ export default function CalendarView({
   timezone,
   workers,
   services,
+  materials,
 }: {
   tasks: CalendarTask[];
   role: Role;
@@ -93,6 +104,8 @@ export default function CalendarView({
   timezone: string;
   workers: Worker[];
   services: Service[];
+  /** Catalog offered when closing a job out. */
+  materials: MaterialOption[];
 }) {
   const calendarRef = useRef<FullCalendar>(null);
   const router = useRouter();
@@ -323,6 +336,7 @@ export default function CalendarView({
           task={editing}
           workers={workers}
           services={services}
+          materials={materials}
           workStart={workStart}
           workEnd={workEnd}
           timezone={timezone}

@@ -109,7 +109,10 @@ Covered so far:
 | `lib/payroll` | weekly hour buckets, pay rounding, which statuses count as worked |
 | `lib/privileges` | who may administer and appoint whom |
 | `lib/loginThrottle` | per-account lockout, per-source spray limits, client IP |
+| `lib/materials` | usage parsing, stock decrement, price snapshots, double-entry guard |
 | `lib/serialize` | Decimal → number, currency formatting |
+| `calendar/finishTask` | material recorded before the bill totals it; no double count |
+| `worker/submitTask` | ownership, status gate, material logged once across reworks |
 | `components/PaymentFields` | method-dependent fields and the names the action reads |
 
 ## Deployment

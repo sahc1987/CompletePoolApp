@@ -13,6 +13,11 @@ import {
 } from "@/lib/schedule";
 import { parseZonedDateTime, zonedDayStart } from "@/lib/timezone";
 import { createBillForTask, recordPayment } from "@/lib/billing";
+import {
+  parseMaterialUsage,
+  hasLoggedMaterials,
+  recordTaskMaterials,
+} from "@/lib/materials";
 import type { ActionState } from "@/lib/actions";
 
 // Notification text must read in the crews' clock, not the server's.
@@ -222,17 +227,31 @@ export async function finishTask(
   if (task.status === "APPROVED") return { error: "This job is already finished." };
   if (task.status === "CANCELLED") return { error: "This job was cancelled." };
 
+  // Materials the admin is logging on the way out. A job that already went
+  // through the worker's submit has its usage counted; entering it again here
+  // would drain stock twice and double-bill the customer.
+  const usage = parseMaterialUsage(formData);
+  const alreadyLogged = await hasLoggedMaterials(taskId);
+
   const now = new Date();
-  await prisma.task.update({
-    where: { id: taskId },
-    data: {
-      status: "APPROVED",
-      approvedAt: now,
-      approvedById: actor.id,
-      submittedAt: task.submittedAt ?? now,
-      flagReason: null,
-    },
+  await prisma.$transaction(async (tx) => {
+    if (!alreadyLogged) {
+      await recordTaskMaterials(tx, taskId, usage);
+    }
+    await tx.task.update({
+      where: { id: taskId },
+      data: {
+        status: "APPROVED",
+        approvedAt: now,
+        approvedById: actor.id,
+        submittedAt: task.submittedAt ?? now,
+        flagReason: null,
+      },
+    });
   });
+
+  // After the transaction commits: the bill totals the material rows written
+  // above, so it has to see them.
   await createBillForTask(taskId);
 
   await notifyAll(`${task.client.name}'s job was finished and billed.`, {
@@ -244,6 +263,8 @@ export async function finishTask(
   revalidatePath("/review");
   revalidatePath("/worker");
   revalidatePath("/billing");
+  // Finishing can now move stock, so inventory has to refresh too.
+  revalidatePath("/materials");
   return { ok: true };
 }
 
