@@ -268,4 +268,16 @@ input[type="radio"] {
     background-size: 1.15rem;
     padding-right: 2.75rem;
   }
+  /* Narrow numeric field (material quantities). The native spinner arrows eat
+     most of a box this small and are useless on a touchscreen, so they go —
+     the keypad and the value stay. */
+  .form-qty {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  .form-qty::-webkit-outer-spin-button,
+  .form-qty::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
 }

@@ -7,6 +7,10 @@ import { editTask, finishTask, chargeTask } from "./actions";
 import SubmitButton from "@/components/SubmitButton";
 import StatusBadge from "@/components/StatusBadge";
 import PaymentFields from "@/components/PaymentFields";
+import MaterialUsageFields, {
+  MaterialUsageSummary,
+  type MaterialOption,
+} from "@/components/MaterialUsageFields";
 import AddressMap from "@/components/AddressMap";
 import { Modal } from "@/components/Modal";
 import { useActionToast } from "@/components/Toast";
@@ -16,7 +20,6 @@ import type { CalendarTask } from "./CalendarView";
 
 type Worker = { id: string; name: string };
 type Service = { id: string; name: string; basePrice: number; defaultDurationMin: number };
-type Material = { id: string; name: string; unit: string };
 
 const METHOD_LABEL: Record<string, string> = {
   CASH: "Cash",
@@ -59,7 +62,7 @@ export default function EditTaskModal({
   workers: Worker[];
   services: Service[];
   /** Catalog offered when finishing the job. */
-  materials: Material[];
+  materials: MaterialOption[];
   /** Business hours as "HH:MM", used to bound the time picker. */
   workStart: string;
   workEnd: string;
@@ -131,61 +134,24 @@ export default function EditTaskModal({
               {/* Material has to be captured before the bill exists — it is
                   part of what the customer owes, and it comes off the shelf. */}
               {alreadyLogged ? (
-                <div>
-                  <p className={labelClass}>Materials used</p>
-                  <ul className="space-y-1 text-sm text-ink">
-                    {task.materialsUsed.map((m) => (
-                      <li key={m.name} className="flex justify-between gap-3">
-                        <span>{m.name}</span>
-                        <span className="tabular-nums text-muted">
-                          {m.quantityUsed} {m.unit}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <p className="mt-1.5 text-xs text-faint">
-                    Logged by the crew and already taken out of stock.
-                  </p>
-                </div>
+                <MaterialUsageSummary
+                  materials={task.materialsUsed}
+                  hint="Logged by the crew and already taken out of stock."
+                />
               ) : (
-                <div>
-                  <p className={labelClass}>Materials used (optional)</p>
-                  {materials.length === 0 ? (
-                    <p className="text-xs text-faint">No materials in the catalog.</p>
-                  ) : (
-                    <>
-                      <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
-                        {materials.map((m) => (
-                          <label
-                            key={m.id}
-                            className="flex items-center justify-between gap-3 text-sm"
-                          >
-                            <span>
-                              {m.name} <span className="text-faint">({m.unit})</span>
-                            </span>
-                            <input
-                              name={`qty_${m.id}`}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0"
-                              className={`${inputClass} w-24`}
-                            />
-                          </label>
-                        ))}
-                      </div>
-                      <p className="mt-1.5 text-xs text-faint">
-                        Comes off stock and is added to the customer&apos;s bill.
-                      </p>
-                    </>
-                  )}
-                </div>
+                <MaterialUsageFields
+                  materials={materials}
+                  label="Materials used (optional)"
+                  hint="Comes off stock and is added to the customer's bill."
+                />
               )}
 
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
                 <p className="text-sm text-muted">
                   Mark this job complete and create the customer&apos;s bill.
                 </p>
+                {/* Stretches to full width in the mobile column, sits at its
+                    natural size once the row lays out side by side. */}
                 <SubmitButton pendingLabel="Finishing…">Finish job</SubmitButton>
               </div>
               {finishState?.error && (

@@ -114,6 +114,7 @@ Covered so far:
 | `calendar/finishTask` | material recorded before the bill totals it; no double count |
 | `worker/submitTask` | ownership, status gate, material logged once across reworks |
 | `components/PaymentFields` | method-dependent fields and the names the action reads |
+| `components/MaterialUsageFields` | field names, decimal keypad, filtering that can't drop an entry |
 
 ## Deployment
 
