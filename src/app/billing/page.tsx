@@ -11,6 +11,7 @@ import {
   paidAmount,
   invoiceNumber,
   receiptNumber,
+  invoiceLineItems,
 } from "@/lib/billing";
 import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
@@ -185,9 +186,11 @@ export default async function BillingPage({
             select: { id: true, name: true, address: true, phone: true, email: true },
           },
           service: { select: { name: true } },
-          // Invoice line items: the service plus each add-on at its sold price.
+          // Invoice line items: the service, each add-on at its sold price,
+          // and each material at the price it was billed at.
           pool: { select: { address: true } },
           extras: { include: { extraService: { select: { name: true } } } },
+          materials: { include: { material: { select: { name: true, unit: true } } } },
         },
       },
     },
@@ -200,13 +203,22 @@ export default async function BillingPage({
     const paid = paidAmount(b.payments);
     const balance = Math.round((amount - paid) * 100) / 100;
 
-    // The job's own price, with each add-on itemised beneath it.
-    const extras = b.task.extras.map((e) => ({
-      description: e.extraService.name,
-      amount: toNumber(e.priceAtTimeOfSale) ?? 0,
-    }));
-    const base =
-      Math.round((amount - extras.reduce((s, e) => s + e.amount, 0)) * 100) / 100;
+    // The job's own price, with each add-on and each material itemised
+    // beneath it, at the prices they were sold/used at.
+    const lineItems = invoiceLineItems({
+      billAmount: amount,
+      serviceName: b.task.service.name,
+      extras: b.task.extras.map((e) => ({
+        name: e.extraService.name,
+        price: toNumber(e.priceAtTimeOfSale) ?? 0,
+      })),
+      materials: b.task.materials.map((m) => ({
+        name: m.material.name,
+        unit: m.material.unit,
+        quantity: toNumber(m.quantityUsed) ?? 0,
+        unitPrice: toNumber(m.customerPriceAtTimeOfUse) ?? 0,
+      })),
+    });
 
     const invoice: InvoiceData = {
       invoiceNo: invoiceNumber(b.invoiceNo),
@@ -221,7 +233,7 @@ export default async function BillingPage({
       clientEmail: b.task.client.email,
       jobDate: fmtDate(b.task.date),
       serviceName: b.task.service.name,
-      lineItems: [{ description: b.task.service.name, amount: base }, ...extras],
+      lineItems,
       total: amount,
       paid,
       balance,

@@ -106,6 +106,7 @@ Covered so far:
 | `lib/timezone` | business-local wall clock, DST boundaries, day/week/month starts |
 | `lib/schedule` | business-hours validation, double-booking detection, time parsing |
 | `lib/billing` | partial vs. full payment, balance limits, payment reversal |
+| `lib/billing` (invoice) | service/add-on/material rows always summing to the bill total |
 | `lib/payroll` | weekly hour buckets, pay rounding, which statuses count as worked |
 | `lib/privileges` | who may administer and appoint whom |
 | `lib/loginThrottle` | per-account lockout, per-source spray limits, client IP |

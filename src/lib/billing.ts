@@ -16,6 +16,56 @@ export function paidAmount(payments: { amount: Prisma.Decimal | number }[]) {
   return round2(payments.reduce((s, p) => s + (toNumber(p.amount) ?? 0), 0));
 }
 
+/** One printed row on an invoice. `detail` is the smaller line beneath it. */
+export type InvoiceLine = {
+  description: string;
+  detail?: string;
+  amount: number;
+};
+
+const usd = (n: number) =>
+  new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n);
+
+/**
+ * The rows printed on an invoice: the service, then each add-on, then each
+ * material the job consumed.
+ *
+ * A bill's amount is service + add-ons + materials, snapshotted at approval.
+ * The service line is derived by subtracting the itemised parts from that
+ * stored total rather than read from `task.price`, because the two can drift —
+ * editing a job's price after it has been billed leaves the snapshot behind.
+ * Deriving it keeps the invariant that actually matters on a customer-facing
+ * document: **the rows sum to the total printed underneath them.**
+ *
+ * Materials were previously left out entirely, which silently folded their
+ * cost into the service line — the customer saw a service priced above what
+ * they agreed, with nothing explaining the difference.
+ */
+export function invoiceLineItems(input: {
+  /** The bill's stored total. */
+  billAmount: number;
+  serviceName: string;
+  extras: { name: string; price: number }[];
+  materials: { name: string; unit: string; quantity: number; unitPrice: number }[];
+}): InvoiceLine[] {
+  const extras: InvoiceLine[] = input.extras.map((e) => ({
+    description: e.name,
+    amount: round2(e.price),
+  }));
+
+  const materials: InvoiceLine[] = input.materials.map((m) => ({
+    description: m.name,
+    // Spelled out so the amount is checkable rather than asserted.
+    detail: `${m.quantity} ${m.unit} × ${usd(m.unitPrice)}`,
+    amount: round2(m.quantity * m.unitPrice),
+  }));
+
+  const itemised = [...extras, ...materials].reduce((s, li) => s + li.amount, 0);
+  const service = round2(input.billAmount - itemised);
+
+  return [{ description: input.serviceName, amount: service }, ...extras, ...materials];
+}
+
 export type PaymentInput = {
   billId: string;
   amount: number;

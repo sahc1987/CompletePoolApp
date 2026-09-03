@@ -3,7 +3,7 @@ import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import ActionForm from "@/components/ActionForm";
 import { card } from "@/components/styles";
-import { money } from "@/lib/serialize";
+import { money, toNumber } from "@/lib/serialize";
 import { approveTask } from "./actions";
 import FlagForm from "./FlagForm";
 import { requirePageSession } from "@/lib/guard";
@@ -29,6 +29,9 @@ export default async function ReviewPage() {
       service: { select: { name: true } },
       worker: { select: { name: true } },
       extras: { include: { extraService: { select: { name: true } } } },
+      // Approving raises the bill, and materials are part of what it charges —
+      // so they belong in front of whoever approves it.
+      materials: { include: { material: { select: { name: true, unit: true } } } },
     },
     orderBy: { submittedAt: "asc" },
   });
@@ -70,6 +73,19 @@ export default async function ReviewPage() {
                   {t.extras.length > 0 && (
                     <div className="mt-1 text-sm text-muted">
                       Extras: {t.extras.map((e) => e.extraService.name).join(", ")}
+                    </div>
+                  )}
+                  {t.materials.length > 0 && (
+                    <div className="mt-1 text-sm text-muted">
+                      Materials:{" "}
+                      {t.materials
+                        .map(
+                          (m) =>
+                            `${m.material.name} (${toNumber(m.quantityUsed) ?? 0} ${
+                              m.material.unit
+                            })`
+                        )
+                        .join(", ")}
                     </div>
                   )}
                   <div className="mt-1 font-medium text-ink">{money(t.price)}</div>

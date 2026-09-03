@@ -52,7 +52,8 @@ export type InvoiceData = {
   clientEmail?: string | null;
   jobDate: string;
   serviceName: string;
-  lineItems: { description: string; amount: number }[];
+  /** `detail` prints smaller beneath the description, e.g. "2 gallon × $9.00". */
+  lineItems: { description: string; detail?: string; amount: number }[];
   total: number;
   paid: number;
   balance: number;
@@ -392,6 +393,7 @@ export function InvoiceDoc({ data }: { data: InvoiceData }) {
           <View style={s.tr} key={`${li.description}-${i}`} wrap={false}>
             <View style={s.cDesc}>
               <Text style={s.itemName}>{li.description}</Text>
+              {li.detail ? <Text style={s.itemSub}>{li.detail}</Text> : null}
             </View>
             <Text style={s.cAmt}>{usd(li.amount)}</Text>
           </View>
