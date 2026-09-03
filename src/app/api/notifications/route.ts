@@ -2,96 +2,21 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { getBusinessTimezone } from "@/lib/schedule";
-import { zonedDayStart, addZonedDays } from "@/lib/timezone";
+import { buildNotificationPayload } from "@/lib/notifications";
 
-// Jobs still on the books. Approved/cancelled work drops off, matching the
-// worker's own task list.
-const ACTIVE = ["SCHEDULED", "IN_PROGRESS", "SUBMITTED", "FLAGGED"] as const;
-// Not yet dealt with — what's actually left to do today.
-const OUTSTANDING = ["SCHEDULED", "IN_PROGRESS"] as const;
+export const dynamic = "force-dynamic";
 
 // Current user's latest notifications + unread count, plus a live summary of
-// their assigned work. Polled by the bell.
+// their assigned work. Used for the bell's first paint and as the fallback
+// when the SSE stream at /api/notifications/stream isn't available.
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const { id: userId, role } = session.user;
-  // Workers see only their own load; managers see the whole team's day.
-  const isManager = role === "ADMIN" || role === "OWNER";
-  const scopeWhere = isManager ? {} : { workerId: userId };
-
-  // "Today" is the crews' today, not the server's — on a UTC host the day
-  // would otherwise roll over mid-evening local time.
-  const tz = await getBusinessTimezone();
-  const now = new Date();
-  const dayStart = zonedDayStart(now, tz);
-  const dayEnd = addZonedDays(dayStart, 1, tz);
-
-  const [items, unread, todayTotal, todayLeft, assignedTotal, next] =
-    await Promise.all([
-      prisma.notification.findMany({
-        where: { userId },
-        orderBy: { createdAt: "desc" },
-        take: 20,
-      }),
-      prisma.notification.count({ where: { userId, read: false } }),
-      // Everything scheduled for today, however it ended up.
-      prisma.task.count({
-        where: { ...scopeWhere, startTime: { gte: dayStart, lt: dayEnd } },
-      }),
-      prisma.task.count({
-        where: {
-          ...scopeWhere,
-          status: { in: [...OUTSTANDING] },
-          startTime: { gte: dayStart, lt: dayEnd },
-        },
-      }),
-      // All open work assigned, not just today's.
-      prisma.task.count({
-        where: { ...scopeWhere, status: { in: [...ACTIVE] } },
-      }),
-      // The next job still to come.
-      prisma.task.findFirst({
-        where: {
-          ...scopeWhere,
-          status: { in: [...OUTSTANDING] },
-          startTime: { gte: now },
-        },
-        orderBy: { startTime: "asc" },
-        select: {
-          id: true,
-          startTime: true,
-          client: { select: { name: true } },
-          pool: { select: { address: true } },
-          service: { select: { name: true } },
-          worker: { select: { name: true } },
-        },
-      }),
-    ]);
-
-  return NextResponse.json({
-    items,
-    unread,
-    summary: {
-      scope: isManager ? "team" : "mine",
-      todayTotal,
-      todayLeft,
-      assignedTotal,
-      next: next && {
-        id: next.id,
-        startTime: next.startTime,
-        clientName: next.client.name,
-        address: next.pool.address,
-        serviceName: next.service.name,
-        // Only meaningful to managers, who see other people's jobs.
-        workerName: isManager ? next.worker.name : null,
-      },
-    },
-  });
+  const payload = await buildNotificationPayload(session.user);
+  return NextResponse.json(payload);
 }
 
 // Mark the user's notifications read. Body: { ids?: string[] } — omit to mark

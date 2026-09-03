@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "./icons";
+import { useToast } from "./Toast";
 
 type Notification = {
   id: string;
@@ -28,6 +29,15 @@ type Summary = {
   assignedTotal: number;
   next: NextJob | null;
 };
+
+type Payload = { items?: Notification[]; summary?: Summary | null; unread?: number };
+
+// Fallback cadence, used only when the live stream can't be established.
+const POLL_MS = 20000;
+// Consecutive stream failures tolerated before giving up on SSE for this tab.
+const MAX_STREAM_ERRORS = 3;
+// How long to wait before retrying a stream that failed to connect.
+const RECONNECT_MS = 2000;
 
 function clockTime(iso: string) {
   return new Date(iso).toLocaleTimeString("en-US", {
@@ -60,31 +70,132 @@ function timeAgo(iso: string) {
 
 export default function NotificationBell() {
   const router = useRouter();
+  const toast = useToast();
   const [items, setItems] = useState<Notification[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  // Ids already shown to the user, so a pushed update only announces what is
+  // genuinely new. Seeded by the first payload — arriving mid-shift with ten
+  // unread messages shouldn't fire ten toasts.
+  const seen = useRef<Set<string> | null>(null);
+
+  const apply = useCallback(
+    (data: Payload) => {
+      const next = data.items ?? [];
+      setItems(next);
+      setSummary(data.summary ?? null);
+      setUnread(data.unread ?? 0);
+
+      const known = seen.current;
+      if (!known) {
+        seen.current = new Set(next.map((n) => n.id));
+        return;
+      }
+      // Oldest first, so a burst reads in the order it happened.
+      const fresh = next.filter((n) => !n.read && !known.has(n.id)).reverse();
+      for (const n of next) known.add(n.id);
+      for (const n of fresh) toast(n.message);
+    },
+    [toast]
+  );
+
   const load = useCallback(async () => {
     try {
       const res = await fetch("/api/notifications", { cache: "no-store" });
       if (!res.ok) return;
-      const data = await res.json();
-      setItems(data.items ?? []);
-      setSummary(data.summary ?? null);
-      setUnread(data.unread ?? 0);
+      apply(await res.json());
     } catch {
       /* offline / transient — keep last known state */
     }
-  }, []);
+  }, [apply]);
 
-  // Poll every 20s so schedule/service changes surface without a refresh.
+  /**
+   * Live feed. The server pushes a payload the moment anything changes, so a
+   * reassignment or a flagged job surfaces in seconds instead of waiting out a
+   * poll interval. EventSource reconnects on its own when the server ends a
+   * window; if it can't get through at all (a proxy that buffers SSE, say) this
+   * falls back to the old polling loop for the life of the tab.
+   *
+   * The connection is dropped while the tab is hidden — a backgrounded tablet
+   * shouldn't hold a streaming request open all day — and re-established, with
+   * an immediate catch-up fetch, when it comes back.
+   */
   useEffect(() => {
-    load();
-    const t = setInterval(load, 20000);
-    return () => clearInterval(t);
-  }, [load]);
+    let source: EventSource | null = null;
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let errors = 0;
+    let stopped = false;
+    let fellBack = false;
+
+    const stopStream = () => {
+      source?.close();
+      source = null;
+    };
+
+    const startPolling = () => {
+      if (pollTimer) return;
+      fellBack = true;
+      void load();
+      pollTimer = setInterval(load, POLL_MS);
+    };
+
+    const startStream = () => {
+      if (stopped || fellBack || source) return;
+      if (typeof EventSource === "undefined") {
+        startPolling();
+        return;
+      }
+      const es = new EventSource("/api/notifications/stream");
+      source = es;
+
+      es.addEventListener("update", (e) => {
+        errors = 0;
+        try {
+          apply(JSON.parse((e as MessageEvent).data));
+        } catch {
+          /* malformed frame — the next update supersedes it */
+        }
+      });
+
+      es.onerror = () => {
+        // A closed window is the normal end of a stream and the browser reopens
+        // it itself. Only a run of failures with no update in between means SSE
+        // isn't getting through.
+        if (es.readyState !== EventSource.CLOSED) return;
+        stopStream();
+        if (stopped) return;
+        errors += 1;
+        if (errors >= MAX_STREAM_ERRORS) startPolling();
+        else retryTimer = setTimeout(startStream, RECONNECT_MS);
+      };
+    };
+
+    // First paint doesn't wait on the stream handshake.
+    void load();
+    startStream();
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        stopStream();
+        return;
+      }
+      void load(); // Catch up on whatever happened while we were away.
+      if (!fellBack) startStream();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stopped = true;
+      stopStream();
+      if (pollTimer) clearInterval(pollTimer);
+      if (retryTimer) clearTimeout(retryTimer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [load, apply]);
 
   // Close the dropdown on outside click.
   useEffect(() => {
