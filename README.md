@@ -74,6 +74,43 @@ A business management web app for a pool service company, built with Next.js. It
 - `npm run prisma:deploy` - apply migrations to a deployed database
 - `npm run prisma:studio` - open Prisma Studio
 - `npm run prisma:seed` - seed the database
+- `npm test` - run the test suite
+- `npm run test:watch` - re-run tests as files change
+- `npm run test:coverage` - run the suite with a coverage report
+
+## Testing
+
+[Jest](https://jestjs.io/) with [Testing Library](https://testing-library.com/),
+wired through `next/jest` so tests compile with the same SWC settings as the app
+and resolve the `@/…` alias.
+
+No database is needed: suites that touch Prisma replace the client with the mock
+in [`src/test/prismaMock.ts`](./src/test/prismaMock.ts) and seed only the calls
+they assert on.
+
+```
+jest.mock("../prisma", () => ({
+  prisma: require("@/test/prismaMock").createPrismaMock(),
+}));
+const prismaMock: PrismaMock = jest.requireMock("../prisma").prisma;
+```
+
+Tests live in `__tests__` folders beside the code they cover. The default
+environment is `jsdom` for components; pure-logic suites opt out with a
+`@jest-environment node` docblock at the top of the file.
+
+Covered so far:
+
+| Module | What is pinned down |
+| --- | --- |
+| `lib/timezone` | business-local wall clock, DST boundaries, day/week/month starts |
+| `lib/schedule` | business-hours validation, double-booking detection, time parsing |
+| `lib/billing` | partial vs. full payment, balance limits, payment reversal |
+| `lib/payroll` | weekly hour buckets, pay rounding, which statuses count as worked |
+| `lib/privileges` | who may administer and appoint whom |
+| `lib/loginThrottle` | per-account lockout, per-source spray limits, client IP |
+| `lib/serialize` | Decimal → number, currency formatting |
+| `components/PaymentFields` | method-dependent fields and the names the action reads |
 
 ## Deployment
 
@@ -87,7 +124,8 @@ src/
                   clients, estimates, kpi, login, materials, review, settings,
                   users, worker, api routes, etc.)
   components/     Shared UI components
-  lib/            Shared application logic/utilities
+  lib/            Shared application logic/utilities (+ __tests__/)
+  test/           Test helpers (Prisma client mock)
   types/          TypeScript types
   middleware.ts   Route protection / role-based access control
 prisma/
