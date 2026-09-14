@@ -1,13 +1,9 @@
-import { prisma } from "@/lib/prisma";
+import { getKpiSummary } from "@/server/services/kpi";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { card } from "@/components/styles";
-import { money, toNumber } from "@/lib/serialize";
+import { money } from "@/lib/serialize";
 import { requirePageSession } from "@/lib/guard";
-
-function num(v: unknown): number {
-  return toNumber(v as never) ?? 0;
-}
 
 // Minutes -> a compact "12h 30m" label.
 function fmtHours(min: number): string {
@@ -20,103 +16,36 @@ function fmtHours(min: number): string {
 export default async function KpiPage() {
   const session = await requirePageSession("OWNER");
 
-  // Only APPROVED tasks are billable — revenue/margin count these alone.
-  const approved = await prisma.task.findMany({
-    where: { status: "APPROVED" },
-    include: {
-      worker: { select: { id: true, name: true } },
-      extras: true,
-      materials: { include: { material: { select: { name: true, unit: true } } } },
-    },
-  });
+  // Every figure below is aggregated by the KPI service, so an owner sees the
+  // same numbers here and on a phone. This page only formats them.
+  const summary = await getKpiSummary(session.user);
+  if (!summary.ok) throw new Error(summary.error);
+  const {
+    revenue,
+    margin,
+    marginPct,
+    materialCost,
+    materialBilled,
+    totalMinutes,
+    approvedJobs,
+    onTimeCount,
+    submittedCount,
+    onTimePct,
+    signedEstimateTotal,
+    signedEstimateCount,
+    workers,
+    materials,
+  } = summary.data;
 
-  // On-time is measured over everything that's been submitted for review:
-  // did the worker finish by the scheduled end time?
-  const submitted = await prisma.task.findMany({
-    where: { submittedAt: { not: null } },
-    select: { submittedAt: true, startTime: true, durationMin: true },
-  });
-
-  // Estimates signed by clients (sales pipeline won).
-  const approvedEstimates = await prisma.estimate.findMany({
-    where: { status: "APPROVED" },
-    select: { total: true },
-  });
-
-  // --- Aggregate ---
-  let revenue = 0;
-  let materialCost = 0;
-  let materialBilled = 0;
-  let totalMinutes = 0;
-  const perWorker = new Map<
-    string,
-    { name: string; revenue: number; jobs: number; minutes: number }
-  >();
-  // Which materials the crews actually consumed, rolled up across every
-  // approved job.
-  const materialsUsed = new Map<
-    string,
-    { name: string; unit: string; qty: number; cost: number; billed: number }
-  >();
-
-  for (const t of approved) {
-    const extras = t.extras.reduce((s, e) => s + num(e.priceAtTimeOfSale), 0);
-    const matBill = t.materials.reduce(
-      (s, m) => s + num(m.customerPriceAtTimeOfUse) * num(m.quantityUsed),
-      0
-    );
-    const matCost = t.materials.reduce(
-      (s, m) => s + num(m.costPriceAtTimeOfUse) * num(m.quantityUsed),
-      0
-    );
-    const taskRevenue = num(t.price) + extras + matBill;
-    revenue += taskRevenue;
-    materialCost += matCost;
-    materialBilled += matBill;
-    totalMinutes += t.durationMin;
-
-    const w =
-      perWorker.get(t.worker.id) ??
-      { name: t.worker.name, revenue: 0, jobs: 0, minutes: 0 };
-    w.revenue += taskRevenue;
-    w.jobs += 1;
-    w.minutes += t.durationMin;
-    perWorker.set(t.worker.id, w);
-
-    for (const m of t.materials) {
-      const e =
-        materialsUsed.get(m.materialId) ??
-        { name: m.material.name, unit: m.material.unit, qty: 0, cost: 0, billed: 0 };
-      e.qty += num(m.quantityUsed);
-      e.cost += num(m.costPriceAtTimeOfUse) * num(m.quantityUsed);
-      e.billed += num(m.customerPriceAtTimeOfUse) * num(m.quantityUsed);
-      materialsUsed.set(m.materialId, e);
-    }
-  }
-
-  const margin = revenue - materialCost;
-  const marginPct = revenue > 0 ? (margin / revenue) * 100 : 0;
-  const materials = [...materialsUsed.values()].sort((a, b) => b.billed - a.billed);
-
-  const onTimeCount = submitted.filter((t) => {
-    if (!t.submittedAt) return false;
-    const end = new Date(t.startTime.getTime() + t.durationMin * 60_000);
-    return t.submittedAt <= end;
-  }).length;
-  const onTimePct = submitted.length > 0 ? (onTimeCount / submitted.length) * 100 : 0;
-
-  const salesTotal = approvedEstimates.reduce((s, e) => s + num(e.total), 0);
-
-  const workers = [...perWorker.values()].sort((a, b) => b.revenue - a.revenue);
   const maxWorkerRev = workers[0]?.revenue ?? 0;
 
   const stats = [
-    { label: "Approved revenue", value: money(revenue), sub: `${approved.length} billable jobs` },
+    { label: "Approved revenue", value: money(revenue), sub: `${approvedJobs} billable jobs` },
     { label: "Gross margin", value: money(margin), sub: `${marginPct.toFixed(0)}% (after materials)` },
-    { label: "Labor hours", value: fmtHours(totalMinutes), sub: `across ${approved.length} approved jobs` },
+    { label: "Labor hours", value: fmtHours(totalMinutes), sub: `across ${approvedJobs} approved jobs` },
     { label: "Materials billed", value: money(materialBilled), sub: `${money(materialCost)} cost` },
-    { label: "On-time rate", value: `${onTimePct.toFixed(0)}%`, sub: `${onTimeCount}/${submitted.length} submitted on time` },
-    { label: "Signed estimates", value: money(salesTotal), sub: `${approvedEstimates.length} won` },
+    { label: "On-time rate", value: `${onTimePct.toFixed(0)}%`, sub: `${onTimeCount}/${submittedCount} submitted on time` },
+    { label: "Signed estimates", value: money(signedEstimateTotal), sub: `${signedEstimateCount} won` },
   ];
 
   return (

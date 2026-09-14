@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import { listClients } from "@/server/services/clientReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { Icon } from "@/components/icons";
@@ -35,46 +34,28 @@ export default async function ClientsPage({
 
   const q = (searchParams.q ?? "").trim();
 
-  // One term, matched against everything you'd plausibly search a client by —
-  // including the address of any pool they own, since a job is often
-  // remembered by where it is rather than by whose name is on the bill.
-  const contains = (field: "name" | "phone" | "email" | "address") =>
-    ({ [field]: { contains: q, mode: "insensitive" } }) as Prisma.ClientWhereInput;
-  const where: Prisma.ClientWhereInput = q
-    ? {
-        OR: [
-          contains("name"),
-          contains("phone"),
-          contains("email"),
-          contains("address"),
-          { pools: { some: { address: { contains: q, mode: "insensitive" } } } },
-        ],
-      }
-    : {};
-
   const perParam = Number(searchParams.per);
   const per = (PER_OPTIONS as readonly number[]).includes(perParam)
     ? perParam
     : DEFAULT_PER;
 
-  // Count first: the page is clamped against it, so narrowing the search
-  // while sitting on page 6 lands you on the last page that still exists
-  // instead of on an empty one.
-  const [total, totalAll] = await Promise.all([
-    prisma.client.count({ where }),
-    q ? prisma.client.count() : Promise.resolve(0),
-  ]);
-  const totalPages = Math.max(1, Math.ceil(total / per));
-  const page = Math.min(Math.max(1, Number(searchParams.page) || 1), totalPages);
-  const start = (page - 1) * per;
-
-  const clients = await prisma.client.findMany({
-    where,
-    orderBy: { name: "asc" },
-    include: { _count: { select: { pools: true, tasks: true } } },
-    skip: start,
-    take: per,
+  // Searching, counting and clamping the page all happen in the service, so a
+  // mobile client list behaves the same as this one — including the page being
+  // clamped, which is why `page` comes back rather than going in unchanged.
+  const result = await listClients(session.user, {
+    query: q,
+    page: Number(searchParams.page) || 1,
+    perPage: per,
   });
+  if (!result.ok) throw new Error(result.error);
+  const {
+    rows: clients,
+    total,
+    totalUnfiltered: totalAll,
+    page,
+    totalPages,
+  } = result.data;
+  const start = (page - 1) * per;
 
   // What every link carries forward. Page is deliberately absent: changing
   // the search or the page size starts you back at page 1.
@@ -161,8 +142,8 @@ export default async function ClientsPage({
                 <tr key={c.id} className="transition-colors hover:bg-chrome-100/40">
                   <td className="px-4 py-4 font-semibold text-ink sm:px-5">{c.name}</td>
                   <td className="px-4 py-4 text-muted sm:px-5">{c.phone ?? "—"}</td>
-                  <td className="hidden px-5 py-4 text-right tabular-nums text-muted sm:table-cell">{c._count.pools}</td>
-                  <td className="hidden px-5 py-4 text-right tabular-nums text-muted sm:table-cell">{c._count.tasks}</td>
+                  <td className="hidden px-5 py-4 text-right tabular-nums text-muted sm:table-cell">{c.poolCount}</td>
+                  <td className="hidden px-5 py-4 text-right tabular-nums text-muted sm:table-cell">{c.taskCount}</td>
                   <td className="px-4 py-4 text-right sm:px-5">
                     <Link
                       href={`/clients/${c.id}`}

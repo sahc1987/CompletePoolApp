@@ -1,17 +1,16 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { listBills } from "@/server/services/billingReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { Icon } from "@/components/icons";
 import { btnBlue, btnGhost, card, inputClass, labelClass } from "@/components/styles";
-import { money, toNumber } from "@/lib/serialize";
+import { money } from "@/lib/serialize";
 import {
   backfillBills,
   backfillLegacyPayments,
   paidAmount,
   invoiceNumber,
   receiptNumber,
-  invoiceLineItems,
 } from "@/lib/billing";
 import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
@@ -57,9 +56,19 @@ function billingHref(params: Record<string, string | number | undefined>) {
   return s ? `/billing?${s}` : "/billing";
 }
 
-function fmtDate(d: Date | null | undefined) {
-  return d
-    ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+// Timestamps arrive from the billing service as ISO strings, and a few are
+// still local Dates (the range bounds this page computes itself), so both are
+// accepted rather than converting at two dozen call sites.
+function asDate(d: Date | string | null | undefined): Date | null {
+  if (!d) return null;
+  const date = typeof d === "string" ? new Date(d) : d;
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function fmtDate(d: Date | string | null | undefined) {
+  const date = asDate(d);
+  return date
+    ? date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "—";
 }
 
@@ -170,55 +179,14 @@ export default async function BillingPage({
   // env default would slide every boundary by the offset between them.
   const tz = await getBusinessTimezone();
 
-  const bills = await prisma.bill.findMany({
-    include: {
-      payments: {
-        orderBy: { paidAt: "asc" },
-        include: { recordedBy: { select: { name: true } } },
-      },
-      reversals: {
-        orderBy: { createdAt: "asc" },
-        include: { reversedBy: { select: { name: true } } },
-      },
-      task: {
-        include: {
-          client: {
-            select: { id: true, name: true, address: true, phone: true, email: true },
-          },
-          service: { select: { name: true } },
-          // Invoice line items: the service, each add-on at its sold price,
-          // and each material at the price it was billed at.
-          pool: { select: { address: true } },
-          extras: { include: { extraService: { select: { name: true } } } },
-          materials: { include: { material: { select: { name: true, unit: true } } } },
-        },
-      },
-    },
-    orderBy: { createdAt: "desc" },
-  });
+  // Money — the amount, what's been paid, the balance, and the itemised
+  // invoice lines — is derived by the billing service so the API and any
+  // future client compute it exactly once. This page only presents it.
+  const billsResult = await listBills(session.user);
+  const bills = billsResult.ok ? billsResult.data : [];
 
-  // Derive money figures once; the balance drives everything below.
   const rows = bills.map((b) => {
-    const amount = toNumber(b.amount) ?? 0;
-    const paid = paidAmount(b.payments);
-    const balance = Math.round((amount - paid) * 100) / 100;
-
-    // The job's own price, with each add-on and each material itemised
-    // beneath it, at the prices they were sold/used at.
-    const lineItems = invoiceLineItems({
-      billAmount: amount,
-      serviceName: b.task.service.name,
-      extras: b.task.extras.map((e) => ({
-        name: e.extraService.name,
-        price: toNumber(e.priceAtTimeOfSale) ?? 0,
-      })),
-      materials: b.task.materials.map((m) => ({
-        name: m.material.name,
-        unit: m.material.unit,
-        quantity: toNumber(m.quantityUsed) ?? 0,
-        unitPrice: toNumber(m.customerPriceAtTimeOfUse) ?? 0,
-      })),
-    });
+    const { amount, paid, balance, lineItems } = b;
 
     const invoice: InvoiceData = {
       invoiceNo: invoiceNumber(b.invoiceNo),
@@ -227,12 +195,12 @@ export default async function BillingPage({
       // The bill goes to the client's billing address; the pool is where the
       // work happened. They're often the same, and the document only prints
       // the service location separately when it actually differs.
-      address: b.task.client.address ?? b.task.pool.address,
-      serviceAddress: b.task.pool.address,
+      address: b.task.client.address ?? b.task.poolAddress,
+      serviceAddress: b.task.poolAddress,
       clientPhone: b.task.client.phone,
       clientEmail: b.task.client.email,
       jobDate: fmtDate(b.task.date),
-      serviceName: b.task.service.name,
+      serviceName: b.task.serviceName,
       lineItems,
       total: amount,
       paid,
@@ -241,33 +209,28 @@ export default async function BillingPage({
       company,
     };
 
-    // Receipts show the balance *after* their own payment, so walk the
-    // payments in order and carry a running total.
-    let running = 0;
-    const receipts: ReceiptData[] = b.payments.map((p) => {
-      const amt = toNumber(p.amount) ?? 0;
-      running = Math.round((running + amt) * 100) / 100;
-      return {
-        receiptNo: receiptNumber(p.receiptNo),
-        invoiceNo: invoiceNumber(b.invoiceNo),
-        paidAt: fmtDate(p.paidAt),
-        clientName: b.task.client.name,
-        address: b.task.client.address ?? b.task.pool.address,
-        serviceAddress: b.task.pool.address,
-        clientPhone: b.task.client.phone,
-        clientEmail: b.task.client.email,
-        serviceName: b.task.service.name,
-        jobDate: fmtDate(b.task.date),
-        amount: amt,
-        method: METHOD_LABEL[p.method] ?? p.method,
-        checkNumber: p.checkNumber,
-        balanceAfter: Math.round((amount - running) * 100) / 100,
-        invoiceTotal: amount,
-        recordedBy: p.recordedBy?.name ?? null,
-        note: p.note,
-        company,
-      };
-    });
+    // The running balance behind each receipt is computed with the rest of the
+    // money in the billing service, so this only dresses it for the document.
+    const receipts: ReceiptData[] = b.payments.map((p) => ({
+      receiptNo: receiptNumber(p.receiptNo),
+      invoiceNo: invoiceNumber(b.invoiceNo),
+      paidAt: fmtDate(p.paidAt),
+      clientName: b.task.client.name,
+      address: b.task.client.address ?? b.task.poolAddress,
+      serviceAddress: b.task.poolAddress,
+      clientPhone: b.task.client.phone,
+      clientEmail: b.task.client.email,
+      serviceName: b.task.serviceName,
+      jobDate: fmtDate(b.task.date),
+      amount: p.amount,
+      method: METHOD_LABEL[p.method] ?? p.method,
+      checkNumber: p.checkNumber,
+      balanceAfter: p.balanceAfter,
+      invoiceTotal: amount,
+      recordedBy: p.recordedBy,
+      note: p.note,
+      company,
+    }));
 
     return { bill: b, amount, paid, balance, invoice, receipts };
   });
@@ -330,7 +293,8 @@ export default async function BillingPage({
       ? zonedDayKey(addZonedDays(rangeStart, 1, tz), tz)
       : todayValue;
 
-  const inPeriod = (d: Date | null | undefined) => {
+  const inPeriod = (value: Date | string | null | undefined) => {
+    const d = asDate(value);
     if (!d) return false;
     if (rangeStart && d < rangeStart) return false;
     if (rangeEnd && d >= rangeEnd) return false;
@@ -406,7 +370,7 @@ export default async function BillingPage({
           return (
             sign *
             (a.bill.task.client.name.localeCompare(b.bill.task.client.name) ||
-              a.bill.task.date.getTime() - b.bill.task.date.getTime())
+              Date.parse(a.bill.task.date) - Date.parse(b.bill.task.date))
           );
         case "status":
           return sign * (STATUS_RANK[a.bill.status] - STATUS_RANK[b.bill.status]);
@@ -493,21 +457,21 @@ export default async function BillingPage({
     payments: r.periodPayments.map((p, i) => ({
       seq: r.periodSeqs[i],
       id: p.id,
-      amount: toNumber(p.amount) ?? 0,
+      amount: p.amount,
       method: p.method,
       checkNumber: p.checkNumber,
       billingAddress: p.billingAddress,
       note: p.note,
-      paidAt: p.paidAt ? p.paidAt.toISOString() : null,
-      recordedBy: p.recordedBy?.name ?? null,
+      paidAt: p.paidAt,
+      recordedBy: p.recordedBy,
     })),
     reversals: r.periodReversals.map((x) => ({
       id: x.id,
       reason: x.reason,
-      amountReversed: toNumber(x.amountReversed) ?? 0,
+      amountReversed: x.amountReversed,
       paymentCount: x.paymentCount,
-      createdAt: x.createdAt.toISOString(),
-      reversedBy: x.reversedBy?.name ?? null,
+      createdAt: x.createdAt,
+      reversedBy: x.reversedBy,
     })),
   });
 
@@ -759,7 +723,7 @@ export default async function BillingPage({
                       {b.task.client.name}
                     </div>
                     <div className="mt-0.5 text-[13px] leading-tight text-faint">
-                      {b.task.service.name} · {fmtDate(b.task.date)}
+                      {b.task.serviceName} · {fmtDate(b.task.date)}
                     </div>
                   </div>
                   <span
@@ -855,7 +819,7 @@ export default async function BillingPage({
                         {b.task.client.name}
                       </div>
                       <div className="mt-0.5 text-[13px] leading-tight text-faint">
-                        {b.task.service.name} · {fmtDate(b.task.date)}
+                        {b.task.serviceName} · {fmtDate(b.task.date)}
                       </div>
                     </td>
 

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { getClient } from "@/server/services/clientReads";
 import AppShell from "@/components/AppShell";
 import DeleteButton from "@/components/DeleteButton";
 import { ModalButton } from "@/components/Modal";
@@ -17,16 +17,12 @@ export default async function ClientDetailPage({
 }) {
   const session = await requirePageSession("ADMIN");
 
-  const client = await prisma.client.findUnique({
-    where: { id: params.id },
-    include: {
-      pools: { orderBy: { address: "asc" } },
-      _count: { select: { tasks: true, estimates: true } },
-    },
-  });
+  const result = await getClient(session.user, params.id);
+  if (!result.ok) throw new Error(result.error);
+  const client = result.data;
   if (!client) notFound();
 
-  const deletable = client._count.tasks === 0 && client._count.estimates === 0;
+  const deletable = client.deletable;
 
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
@@ -61,7 +57,7 @@ export default async function ClientDetailPage({
               />
             ) : (
               <p className="text-sm text-muted">
-                Has {client._count.tasks} task(s) and {client._count.estimates}{" "}
+                Has {client.taskCount} task(s) and {client.estimateCount}{" "}
                 estimate(s) on record — can&apos;t be deleted.
               </p>
             )}
