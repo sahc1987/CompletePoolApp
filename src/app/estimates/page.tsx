@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { listClientsWithPools } from "@/server/services/catalogReads";
+import { listEstimates } from "@/server/services/estimateReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { ModalButton } from "@/components/Modal";
@@ -17,19 +18,12 @@ const STATUS_STYLE: Record<string, string> = {
 export default async function EstimatesPage() {
   const session = await requirePageSession("ADMIN", "WORKER");
 
-  const [clients, estimates] = await Promise.all([
-    prisma.client.findMany({
-      orderBy: { name: "asc" },
-      include: { pools: { orderBy: { address: "asc" }, select: { id: true, address: true } } },
-    }),
-    prisma.estimate.findMany({
-      orderBy: { createdAt: "desc" },
-      include: {
-        client: { select: { name: true } },
-        createdBy: { select: { name: true } },
-      },
-    }),
+  const [clients, estimatesResult] = await Promise.all([
+    listClientsWithPools(),
+    listEstimates(session.user),
   ]);
+  if (!estimatesResult.ok) throw new Error(estimatesResult.error);
+  const estimates = estimatesResult.data;
 
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
@@ -69,14 +63,14 @@ export default async function EstimatesPage() {
             <tbody className="divide-y divide-line/60">
               {estimates.map((e) => (
                 <tr key={e.id} className="transition-colors hover:bg-chrome-100/40">
-                  <td className="px-4 py-4 font-semibold text-ink sm:px-5">{e.client.name}</td>
+                  <td className="px-4 py-4 font-semibold text-ink sm:px-5">{e.clientName}</td>
                   <td className="px-4 py-4 sm:px-5">
                     <span className={`inline-block rounded-full px-2.5 py-0.5 text-[11px] font-bold uppercase tracking-wide ${STATUS_STYLE[e.status]}`}>
                       {e.status[0] + e.status.slice(1).toLowerCase()}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-right font-semibold tabular-nums text-ink sm:px-5">{money(e.total)}</td>
-                  <td className="hidden px-5 py-4 text-muted md:table-cell">{e.createdBy.name}</td>
+                  <td className="hidden px-5 py-4 text-muted md:table-cell">{e.createdByName}</td>
                   <td className="px-4 py-4 text-right sm:px-5">
                     <Link href={`/estimates/${e.id}`} className="font-semibold text-navy-700 hover:underline">
                       Open

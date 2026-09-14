@@ -1,11 +1,10 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import { getSchedulingCatalog } from "@/server/services/catalogReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import ActionForm from "@/components/ActionForm";
 import { card } from "@/components/styles";
-import { toNumber } from "@/lib/serialize";
-import { getWorkHours, minToHHMM } from "@/lib/schedule";
+import { minToHHMM } from "@/lib/schedule";
 import AssignForm from "./AssignForm";
 import { runRecurrenceExpansion } from "./actions";
 import { requirePageSession } from "@/lib/guard";
@@ -13,22 +12,10 @@ import { requirePageSession } from "@/lib/guard";
 export default async function AssignPage() {
   const session = await requirePageSession("ADMIN");
 
-  const [clients, workers, services, extras, hours] = await Promise.all([
-    prisma.client.findMany({
-      orderBy: { name: "asc" },
-      include: { pools: { orderBy: { address: "asc" }, select: { id: true, address: true } } },
-    }),
-    prisma.user.findMany({
-      where: { role: "WORKER", active: true },
-      orderBy: { name: "asc" },
-      select: { id: true, name: true },
-    }),
-    prisma.service.findMany({ orderBy: { name: "asc" } }),
-    prisma.extraService.findMany({ orderBy: { name: "asc" } }),
-    getWorkHours(),
-  ]);
-
-  const hasClientsWithPools = clients.some((c) => c.pools.length > 0);
+  const catalog = await getSchedulingCatalog(session.user);
+  if (!catalog.ok) throw new Error(catalog.error);
+  const { clients, workers, services, extras, hours, hasClientsWithPools } =
+    catalog.data;
 
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
@@ -65,13 +52,13 @@ export default async function AssignPage() {
             services={services.map((s) => ({
               id: s.id,
               name: s.name,
-              basePrice: toNumber(s.basePrice) ?? 0,
+              basePrice: s.basePrice,
               defaultDurationMin: s.defaultDurationMin,
             }))}
             extras={extras.map((e) => ({
               id: e.id,
               name: e.name,
-              price: toNumber(e.price) ?? 0,
+              price: e.price,
             }))}
             workStart={minToHHMM(hours.startMin)}
             workEnd={minToHHMM(hours.endMin)}

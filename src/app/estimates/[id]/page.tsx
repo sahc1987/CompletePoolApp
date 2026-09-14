@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import {
+  getEstimate,
+  getLineItemCatalog,
+} from "@/server/services/estimateReads";
 import AppShell from "@/components/AppShell";
 import ActionForm from "@/components/ActionForm";
 import DeleteButton from "@/components/DeleteButton";
 import { card, selectClass } from "@/components/styles";
-import { money, toNumber } from "@/lib/serialize";
+import { money } from "@/lib/serialize";
 import LineItemForm from "../LineItemForm";
 import SignForm from "../SignForm";
 import DeclineForm from "../DeclineForm";
@@ -27,8 +30,13 @@ const STATUS_STYLE: Record<string, string> = {
   DECLINED: "bg-danger/10 text-danger",
 };
 
-function fmtDate(d: Date | null | undefined) {
-  return d ? d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : null;
+// Instants arrive from the estimate service as ISO strings.
+function fmtDate(d: Date | string | null | undefined) {
+  if (!d) return null;
+  const date = typeof d === "string" ? new Date(d) : d;
+  return Number.isNaN(date.getTime())
+    ? null
+    : date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
 export default async function EstimateDetailPage({
@@ -38,62 +46,41 @@ export default async function EstimateDetailPage({
 }) {
   const session = await requirePageSession("ADMIN", "WORKER");
 
-  const estimate = await prisma.estimate.findUnique({
-    where: { id: params.id },
-    include: {
-      client: { select: { name: true } },
-      pool: { select: { address: true } },
-      createdBy: { select: { name: true } },
-      lineItems: { orderBy: { id: "asc" } },
-      taxes: { orderBy: { name: "asc" } },
-    },
-  });
+  const result = await getEstimate(session.user, params.id);
+  if (!result.ok) throw new Error(result.error);
+  const estimate = result.data;
   if (!estimate) notFound();
 
-  const isDraft = estimate.status === "DRAFT";
-  const isPresented = estimate.status === "PRESENTED";
-  const appliedRateIds = new Set(estimate.taxes.map((t) => t.taxRateId));
-  const availableRates = isDraft
-    ? (await prisma.taxRate.findMany({ where: { active: true }, orderBy: { name: "asc" } }))
-        .filter((r) => !appliedRateIds.has(r.id))
-    : [];
+  const { isDraft, isPresented, availableTaxRates: availableRates } = estimate;
 
-  // Catalog for line-item autosuggest: services, extras, and materials with
-  // their customer-facing price. Picking one auto-fills the unit price.
-  const [svc, ext, mat] = isDraft
-    ? await Promise.all([
-        prisma.service.findMany({ orderBy: { name: "asc" } }),
-        prisma.extraService.findMany({ orderBy: { name: "asc" } }),
-        prisma.material.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
-      ])
-    : [[], [], []];
-  const catalog = [
-    ...svc.map((s) => ({ name: s.name, price: toNumber(s.basePrice) ?? 0, kind: "Service" })),
-    ...ext.map((e) => ({ name: e.name, price: toNumber(e.price) ?? 0, kind: "Extra" })),
-    ...mat.map((m) => ({ name: m.name, price: toNumber(m.customerPrice) ?? 0, kind: "Material" })),
-  ];
+  // Catalog for line-item autosuggest. Only a draft can take new lines, so
+  // there is nothing to suggest against a locked estimate.
+  const catalogResult = isDraft
+    ? await getLineItemCatalog(session.user)
+    : null;
+  const catalog = catalogResult?.ok ? catalogResult.data : [];
 
   const pdfData: EstimatePdfData = {
     number: estimate.id.slice(-6).toUpperCase(),
-    clientName: estimate.client.name,
-    address: estimate.pool?.address ?? null,
-    createdBy: estimate.createdBy.name,
+    clientName: estimate.clientName,
+    address: estimate.poolAddress ?? null,
+    createdBy: estimate.createdByName,
     createdAt: fmtDate(estimate.createdAt) ?? "",
     validUntil: fmtDate(estimate.validUntil),
     notes: estimate.notes,
     lineItems: estimate.lineItems.map((li) => ({
       description: li.description,
-      quantity: toNumber(li.quantity) ?? 0,
-      unitPrice: toNumber(li.unitPrice) ?? 0,
+      quantity: li.quantity,
+      unitPrice: li.unitPrice,
     })),
     taxes: estimate.taxes.map((t) => ({
       name: t.name,
-      ratePercent: toNumber(t.ratePercent) ?? 0,
-      amount: toNumber(t.amount) ?? 0,
+      ratePercent: t.ratePercent,
+      amount: t.amount,
     })),
-    subtotal: toNumber(estimate.subtotal) ?? 0,
-    taxTotal: toNumber(estimate.taxTotal) ?? 0,
-    total: toNumber(estimate.total) ?? 0,
+    subtotal: estimate.subtotal ?? 0,
+    taxTotal: estimate.taxTotal ?? 0,
+    total: estimate.total ?? 0,
     signedByName: estimate.signedByName,
     signatureData: estimate.signatureData,
     signedAt: fmtDate(estimate.signedAt),
@@ -104,7 +91,7 @@ export default async function EstimateDetailPage({
       <div className="mb-6 flex items-center gap-2 text-sm text-muted">
         <Link href="/estimates" className="hover:underline">Estimates</Link>
         <span>/</span>
-        <span className="text-ink">{estimate.client.name}</span>
+        <span className="text-ink">{estimate.clientName}</span>
         <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${STATUS_STYLE[estimate.status]}`}>
           {estimate.status[0] + estimate.status.slice(1).toLowerCase()}
         </span>
@@ -123,10 +110,10 @@ export default async function EstimateDetailPage({
                   {estimate.lineItems.map((li) => (
                     <tr key={li.id} className="border-b border-line last:border-0">
                       <td className="py-2">{li.description}</td>
-                      <td className="py-2 text-right text-muted">{toNumber(li.quantity)}</td>
+                      <td className="py-2 text-right text-muted">{li.quantity}</td>
                       <td className="py-2 text-right text-muted">{money(li.unitPrice)}</td>
                       <td className="py-2 text-right font-medium">
-                        {money((toNumber(li.quantity) ?? 0) * (toNumber(li.unitPrice) ?? 0))}
+                        {money((li.quantity) * (li.unitPrice))}
                       </td>
                       {isDraft && (
                         <td className="py-2 pl-2 text-right">
@@ -160,7 +147,7 @@ export default async function EstimateDetailPage({
               <ul className="space-y-2">
                 {estimate.taxes.map((t) => (
                   <li key={t.id} className="flex items-center justify-between text-sm">
-                    <span>{t.name} <span className="text-faint">({toNumber(t.ratePercent)}%)</span></span>
+                    <span>{t.name} <span className="text-faint">({t.ratePercent}%)</span></span>
                     <span className="flex items-center gap-3">
                       <span className="text-muted">{money(t.amount)}</span>
                       {isDraft && (
@@ -180,7 +167,7 @@ export default async function EstimateDetailPage({
                 <select name="taxRateId" className={selectClass} defaultValue="">
                   <option value="" disabled>Add a tax rate…</option>
                   {availableRates.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name} ({toNumber(r.rate)}%)</option>
+                    <option key={r.id} value={r.id}>{r.name} ({r.rate}%)</option>
                   ))}
                 </select>
                 <input type="hidden" name="estimateId" value={estimate.id} />
@@ -203,7 +190,7 @@ export default async function EstimateDetailPage({
                 <dt>Total</dt><dd>{money(estimate.total)}</dd>
               </div>
             </dl>
-            {estimate.pool && <p className="mt-3 text-xs text-faint">{estimate.pool.address}</p>}
+            {estimate.poolAddress && <p className="mt-3 text-xs text-faint">{estimate.poolAddress}</p>}
             {estimate.validUntil && (
               <p className="text-xs text-faint">Valid until {fmtDate(estimate.validUntil)}</p>
             )}

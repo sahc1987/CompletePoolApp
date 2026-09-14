@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { getMyProfile } from "@/server/services/account";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { card } from "@/components/styles";
@@ -16,10 +16,9 @@ const ROLE_BLURB: Record<string, string> = {
 export default async function AccountPage() {
   const session = await requirePageSession();
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { name: true, email: true, phone: true, role: true, createdAt: true },
-  });
+  const result = await getMyProfile(session.user);
+  if (!result.ok) throw new Error(result.error);
+  const user = result.data;
   if (!user) redirect("/login");
 
   const roleLabel = user.role[0] + user.role.slice(1).toLowerCase();
@@ -55,7 +54,7 @@ export default async function AccountPage() {
             <div>
               <div className="text-faint">Member since</div>
               <div className="text-ink">
-                {user.createdAt.toLocaleDateString("en-US", {
+                {new Date(user.createdAt).toLocaleDateString("en-US", {
                   year: "numeric",
                   month: "long",
                   day: "numeric",

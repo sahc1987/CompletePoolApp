@@ -1,8 +1,13 @@
 import { prisma } from "@/lib/prisma";
+import { paidAmount } from "@/lib/billing";
 import { assertRole, type Actor } from "@/server/actor";
 import { iso, requiredIso, requiredMoney } from "@/server/serialize";
 import { ok, type ServiceResult } from "@/server/result";
-import type { TaskStatusValue } from "@/contracts/enums";
+import type {
+  PaymentMethodValue,
+  PaymentStatusValue,
+  TaskStatusValue,
+} from "@/contracts/enums";
 
 /**
  * Task read models for the worker's own list and the admin review queue.
@@ -154,5 +159,110 @@ export async function listReviewQueue(
         customerPrice: requiredMoney(m.customerPriceAtTimeOfUse),
       })),
     }))
+  );
+}
+
+export type CalendarTaskRow = {
+  id: string;
+  title: string;
+  clientName: string;
+  address: string;
+  /** Null for a worker — they never see money. */
+  price: number | null;
+  workerId: string;
+  workerName: string;
+  serviceId: string;
+  durationMin: number;
+  start: string;
+  end: string;
+  status: TaskStatusValue;
+  /**
+   * Quantities are safe for anyone who can see the job; the prices they were
+   * logged at are not, so they stay out of the payload.
+   */
+  materialsUsed: { name: string; unit: string; quantityUsed: number }[];
+  /** Admin only. */
+  bill: {
+    amount: number;
+    paid: number;
+    balance: number;
+    status: PaymentStatusValue;
+    method: PaymentMethodValue | null;
+    paidAt: string | null;
+  } | null;
+};
+
+/**
+ * Jobs for the calendar, redacted to what the actor may see.
+ *
+ * A worker gets only their own jobs, with no price and no billing — that
+ * redaction is the whole reason this belongs in the service rather than in a
+ * page. A client that filters money out of its own render is one bug away from
+ * showing it.
+ */
+export async function listCalendarTasks(
+  actor: Actor
+): Promise<ServiceResult<CalendarTaskRow[]>> {
+  const isWorker = actor.role === "WORKER";
+  const isAdmin = actor.role === "ADMIN";
+
+  const tasks = await prisma.task.findMany({
+    where: {
+      status: { not: "CANCELLED" },
+      ...(isWorker ? { workerId: actor.id } : {}),
+    },
+    include: {
+      client: { select: { name: true } },
+      pool: { select: { address: true } },
+      service: { select: { name: true } },
+      worker: { select: { name: true } },
+      bill: { include: { payments: true } },
+      // What the job has already consumed, so the finish form can show it
+      // instead of inviting a second entry.
+      materials: {
+        include: { material: { select: { name: true, unit: true } } },
+      },
+    },
+    orderBy: { startTime: "asc" },
+  });
+
+  return ok(
+    tasks.map((t) => {
+      const start = t.startTime;
+      const end = new Date(start.getTime() + t.durationMin * 60_000);
+      const billAmount = t.bill ? requiredMoney(t.bill.amount) : 0;
+      const billPaid = t.bill ? paidAmount(t.bill.payments) : 0;
+
+      return {
+        id: t.id,
+        title: t.service.name,
+        clientName: t.client.name,
+        address: t.pool.address,
+        price: isWorker ? null : requiredMoney(t.price),
+        workerId: t.workerId,
+        workerName: t.worker.name,
+        serviceId: t.serviceId,
+        durationMin: t.durationMin,
+        start: requiredIso(start),
+        end: requiredIso(end),
+        status: t.status as TaskStatusValue,
+        materialsUsed: t.materials.map((m) => ({
+          name: m.material.name,
+          unit: m.material.unit,
+          quantityUsed: requiredMoney(m.quantityUsed),
+        })),
+        bill:
+          isAdmin && t.bill
+            ? {
+                amount: billAmount,
+                paid: billPaid,
+                balance: Math.round((billAmount - billPaid) * 100) / 100,
+                status: t.bill.status as PaymentStatusValue,
+                method: t.bill.method as PaymentMethodValue | null,
+                paidAt: iso(t.bill.paidAt),
+              }
+            : null,
+      };
+    })
   );
 }

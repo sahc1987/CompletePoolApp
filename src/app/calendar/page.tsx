@@ -1,7 +1,10 @@
-import { prisma } from "@/lib/prisma";
+import { listCalendarTasks } from "@/server/services/taskReads";
+import {
+  listAssignableWorkers,
+  listServices,
+} from "@/server/services/catalogReads";
+import { listUsableMaterials } from "@/server/services/materialReads";
 import AppShell from "@/components/AppShell";
-import { toNumber } from "@/lib/serialize";
-import { paidAmount } from "@/lib/billing";
 import { getWorkHours, minToHHMM } from "@/lib/schedule";
 import { zonedDayKey } from "@/lib/timezone";
 import CalendarView, { type CalendarTask } from "./CalendarView";
@@ -13,85 +16,19 @@ export default async function CalendarPage() {
   const isWorker = session.user.role === "WORKER";
   const isAdmin = session.user.role === "ADMIN";
 
-  // Worker sees only their own tasks; admin/owner see everything.
-  const tasks = await prisma.task.findMany({
-    where: {
-      status: { not: "CANCELLED" },
-      ...(isWorker ? { workerId: session.user.id } : {}),
-    },
-    include: {
-      client: { select: { name: true } },
-      pool: { select: { address: true } },
-      service: { select: { name: true } },
-      worker: { select: { name: true } },
-      bill: { include: { payments: true } },
-      // What the job has already consumed, so the finish form can show it
-      // instead of inviting a second entry.
-      materials: { include: { material: { select: { name: true, unit: true } } } },
-    },
-    orderBy: { startTime: "asc" },
-  });
-
-  const calendarTasks: CalendarTask[] = tasks.map((t) => {
-    const start = t.startTime;
-    const end = new Date(start.getTime() + t.durationMin * 60_000);
-    const billAmount = t.bill ? toNumber(t.bill.amount) ?? 0 : 0;
-    const billPaid = t.bill ? paidAmount(t.bill.payments) : 0;
-    return {
-      id: t.id,
-      title: t.service.name,
-      clientName: t.client.name,
-      address: t.pool.address,
-      // Worker never sees price, matching the permission matrix.
-      price: isWorker ? null : toNumber(t.price),
-      workerId: t.workerId,
-      workerName: t.worker.name,
-      serviceId: t.serviceId,
-      durationMin: t.durationMin,
-      start: start.toISOString(),
-      end: end.toISOString(),
-      status: t.status,
-      // Quantities are safe for anyone who can see the job; the prices they
-      // were logged at are not, so they stay out of the payload.
-      materialsUsed: t.materials.map((m) => ({
-        name: m.material.name,
-        unit: m.material.unit,
-        quantityUsed: toNumber(m.quantityUsed) ?? 0,
-      })),
-      // Billing is admin-only (workers never see money).
-      bill:
-        isAdmin && t.bill
-          ? {
-              amount: billAmount,
-              paid: billPaid,
-              balance: Math.round((billAmount - billPaid) * 100) / 100,
-              status: t.bill.status,
-              method: t.bill.method,
-              paidAt: t.bill.paidAt ? t.bill.paidAt.toISOString() : null,
-            }
-          : null,
-    };
-  });
+  // Worker sees only their own tasks; admin/owner see everything. Price and
+  // billing are stripped for a worker inside the service, so no caller has to
+  // remember to withhold them.
+  const tasksResult = await listCalendarTasks(session.user);
+  if (!tasksResult.ok) throw new Error(tasksResult.error);
+  const calendarTasks: CalendarTask[] = tasksResult.data;
 
   // Only admins can edit; fetch the option lists they need for the editor.
   const [workers, services, materials] = isAdmin
     ? await Promise.all([
-        prisma.user.findMany({
-          where: { role: "WORKER", active: true },
-          select: { id: true, name: true },
-          orderBy: { name: "asc" },
-        }),
-        prisma.service.findMany({
-          select: { id: true, name: true, basePrice: true, defaultDurationMin: true },
-          orderBy: { name: "asc" },
-        }),
-        // Retired materials stay off the list — they can't be used on new work,
-        // though jobs that already consumed them keep their history.
-        prisma.material.findMany({
-          where: { active: true },
-          select: { id: true, name: true, unit: true },
-          orderBy: { name: "asc" },
-        }),
+        listAssignableWorkers(),
+        listServices(),
+        listUsableMaterials(session.user).then((r) => (r.ok ? r.data : [])),
       ])
     : [[], [], []];
 
@@ -123,7 +60,7 @@ export default async function CalendarPage() {
         services={services.map((s) => ({
           id: s.id,
           name: s.name,
-          basePrice: toNumber(s.basePrice) ?? 0,
+          basePrice: s.basePrice,
           defaultDurationMin: s.defaultDurationMin,
         }))}
         materials={materials}

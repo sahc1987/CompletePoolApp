@@ -1,11 +1,11 @@
-import { prisma } from "@/lib/prisma";
+import { getBusinessCatalog } from "@/server/services/catalogReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import DeleteButton from "@/components/DeleteButton";
 import { ModalButton } from "@/components/Modal";
 import { card } from "@/components/styles";
-import { toNumber } from "@/lib/serialize";
-import { getWorkHours, minToHHMM } from "@/lib/schedule";
+
+import { minToHHMM } from "@/lib/schedule";
 import CatalogForm, { type Field } from "./CatalogForm";
 import WorkHoursForm from "./WorkHoursForm";
 import {
@@ -75,12 +75,9 @@ function CatalogRow({
 export default async function SettingsPage() {
   const session = await requirePageSession("ADMIN");
 
-  const [services, extras, taxRates, hours] = await Promise.all([
-    prisma.service.findMany({ orderBy: { name: "asc" } }),
-    prisma.extraService.findMany({ orderBy: { name: "asc" } }),
-    prisma.taxRate.findMany({ orderBy: { name: "asc" } }),
-    getWorkHours(),
-  ]);
+  const catalog = await getBusinessCatalog(session.user);
+  if (!catalog.ok) throw new Error(catalog.error);
+  const { services, extras, taxRates, hours } = catalog.data;
 
   const rowDelete =
     "rounded-full px-3 py-1.5 text-[13px] font-semibold text-faint transition hover:bg-danger/10 hover:text-danger";
@@ -139,13 +136,13 @@ export default async function SettingsPage() {
               <CatalogRow
                 key={s.id}
                 name={s.name}
-                detail={`$${toNumber(s.basePrice) ?? 0} · ${s.defaultDurationMin} min`}
+                detail={`$${s.basePrice} · ${s.defaultDurationMin} min`}
                 title={`Edit ${s.name}`}
                 action={saveService}
                 id={s.id}
                 fields={[
                   { name: "name", label: "Name", defaultValue: s.name, required: true },
-                  { name: "basePrice", label: "Base $", type: "number", step: "0.01", defaultValue: toNumber(s.basePrice) ?? 0 },
+                  { name: "basePrice", label: "Base $", type: "number", step: "0.01", defaultValue: s.basePrice },
                   { name: "defaultDurationMin", label: "Minutes", type: "number", defaultValue: s.defaultDurationMin },
                 ]}
               >
@@ -192,13 +189,13 @@ export default async function SettingsPage() {
               <CatalogRow
                 key={e.id}
                 name={e.name}
-                detail={`$${toNumber(e.price) ?? 0}`}
+                detail={`$${e.price}`}
                 title={`Edit ${e.name}`}
                 action={saveExtra}
                 id={e.id}
                 fields={[
                   { name: "name", label: "Name", defaultValue: e.name, required: true },
-                  { name: "price", label: "Price $", type: "number", step: "0.01", defaultValue: toNumber(e.price) ?? 0 },
+                  { name: "price", label: "Price $", type: "number", step: "0.01", defaultValue: e.price },
                 ]}
               >
                 <DeleteButton
@@ -251,7 +248,7 @@ export default async function SettingsPage() {
               <CatalogRow
                 key={t.id}
                 name={t.name}
-                detail={`${toNumber(t.rate) ?? 0}%`}
+                detail={`${t.rate}%`}
                 badge={
                   <span
                     className={`rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${
@@ -266,7 +263,7 @@ export default async function SettingsPage() {
                 id={t.id}
                 fields={[
                   { name: "name", label: "Name", defaultValue: t.name, required: true },
-                  { name: "rate", label: "Rate %", type: "number", step: "0.001", defaultValue: toNumber(t.rate) ?? 0 },
+                  { name: "rate", label: "Rate %", type: "number", step: "0.001", defaultValue: t.rate },
                 ]}
               >
                 <DeleteButton
