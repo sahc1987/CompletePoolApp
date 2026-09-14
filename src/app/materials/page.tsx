@@ -1,11 +1,14 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
+import {
+  listMaterials,
+  listPendingMaterialRequests,
+} from "@/server/services/materialReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import { Icon } from "@/components/icons";
 import { ModalButton } from "@/components/Modal";
 import { btnBlue, btnGhost, inputClass } from "@/components/styles";
-import { money, toNumber } from "@/lib/serialize";
+import { money } from "@/lib/serialize";
 import CatalogForm from "../settings/CatalogForm";
 import StockForm from "./StockForm";
 import RespondForm from "./RespondForm";
@@ -36,24 +39,19 @@ export default async function MaterialsPage({
 }) {
   const session = await requirePageSession("ADMIN");
 
-  const [materials, pendingRequests] = await Promise.all([
-    prisma.material.findMany({ orderBy: { name: "asc" } }),
-    prisma.materialRequest.findMany({
-      where: { status: "PENDING" },
-      include: {
-        worker: { select: { name: true } },
-        material: { select: { name: true, unit: true } },
-        task: { include: { client: { select: { name: true } } } },
-      },
-      orderBy: [{ urgent: "desc" }, { createdAt: "asc" }],
-    }),
+  const [catalog, inbox] = await Promise.all([
+    listMaterials(session.user),
+    listPendingMaterialRequests(session.user),
   ]);
+  if (!catalog.ok) throw new Error(catalog.error);
+  if (!inbox.ok) throw new Error(inbox.error);
+  const materials = catalog.data;
+  const pendingRequests = inbox.data;
 
-  const isLow = (m: (typeof materials)[number]) =>
-    m.active && toNumber(m.quantityOnHand)! <= toNumber(m.reorderThreshold)!;
-  // Reorder alerts describe the whole catalog, not the page you're looking
-  // at — so they're computed before the search narrows anything.
-  const lowStock = materials.filter(isLow);
+  // Whether a material is low compares two of its columns, which the service
+  // resolves per row. Reorder alerts describe the whole catalog, not the page
+  // you're looking at — so they're read before the search narrows anything.
+  const lowStock = materials.filter((m) => m.low);
 
   // Search and paging apply to the catalog list only. It's a small table
   // already in memory (isLow compares two columns, which the database can't
@@ -132,12 +130,12 @@ export default async function MaterialsPage({
                     </span>
                   )}
                   <span className="font-semibold text-ink">
-                    {r.material ? `${r.material.name} (${r.material.unit})` : r.description}
+                    {r.materialId ? `${r.materialName} (${r.materialUnit})` : r.description}
                   </span>
                   <span className="text-muted">× {Number(r.quantityRequested)}</span>
                   <span className="text-faint">
-                    — {r.worker.name}
-                    {r.task ? ` · for ${r.task.client.name}` : " · general restock"}
+                    — {r.workerName}
+                    {r.taskId ? ` · for ${r.taskClientName}` : " · general restock"}
                   </span>
                 </div>
                 <div className="mt-2">
@@ -162,8 +160,8 @@ export default async function MaterialsPage({
             {lowStock.map((m) => (
               <li key={m.id}>
                 <span className="font-semibold text-ink">{m.name}</span> —{" "}
-                {toNumber(m.quantityOnHand)} {m.unit} on hand (reorder at{" "}
-                {toNumber(m.reorderThreshold)})
+                {m.quantityOnHand} {m.unit} on hand (reorder at{" "}
+                {m.reorderThreshold})
               </li>
             ))}
           </ul>
@@ -225,8 +223,8 @@ export default async function MaterialsPage({
             </p>
           )}
           {pageRows.map((m) => {
-            const low = isLow(m);
-            const qty = toNumber(m.quantityOnHand) ?? 0;
+            const low = m.low;
+            const qty = m.quantityOnHand;
             return (
               <div
                 key={m.id}
@@ -262,7 +260,7 @@ export default async function MaterialsPage({
                   <ModalButton
                     label="Manage"
                     title={m.name}
-                    subtitle={`${qty} ${m.unit} on hand · reorder at ${toNumber(m.reorderThreshold) ?? 0}`}
+                    subtitle={`${qty} ${m.unit} on hand · reorder at ${m.reorderThreshold}`}
                     icon={null}
                     size="lg"
                     className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-navy-700 transition hover:bg-chrome-100"
@@ -286,9 +284,9 @@ export default async function MaterialsPage({
                           fields={[
                             { name: "name", label: "Name", defaultValue: m.name, required: true },
                             { name: "unit", label: "Unit", defaultValue: m.unit, required: true },
-                            { name: "costPrice", label: "Cost $", type: "number", step: "0.01", defaultValue: toNumber(m.costPrice) ?? 0 },
-                            { name: "customerPrice", label: "Bills $", type: "number", step: "0.01", defaultValue: toNumber(m.customerPrice) ?? 0 },
-                            { name: "reorderThreshold", label: "Reorder at", type: "number", step: "0.01", defaultValue: toNumber(m.reorderThreshold) ?? 0 },
+                            { name: "costPrice", label: "Cost $", type: "number", step: "0.01", defaultValue: m.costPrice },
+                            { name: "customerPrice", label: "Bills $", type: "number", step: "0.01", defaultValue: m.customerPrice },
+                            { name: "reorderThreshold", label: "Reorder at", type: "number", step: "0.01", defaultValue: m.reorderThreshold },
                           ]}
                         />
                       </div>

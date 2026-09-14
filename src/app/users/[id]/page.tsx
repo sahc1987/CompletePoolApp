@@ -1,11 +1,9 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
+import { getTeamMember } from "@/server/services/userReads";
 import AppShell from "@/components/AppShell";
 import { card } from "@/components/styles";
-import { toNumber } from "@/lib/serialize";
-import { weeklyHours, weekLabel, hoursLabel } from "@/lib/payroll";
-import { getBusinessTimezone } from "@/lib/schedule";
+import { weekLabel, hoursLabel } from "@/lib/payroll";
 import EmploymentForm from "../EmploymentForm";
 import { requirePageSession } from "@/lib/guard";
 
@@ -16,14 +14,26 @@ function usd(n: number) {
   }).format(n);
 }
 
+// Dates arrive from the team service as ISO strings; these read either, so the
+// date-only columns (hire date, birthday) still render off the same local
+// calendar day they were typed on.
+function asDate(d: Date | string | null | undefined): Date | null {
+  if (!d) return null;
+  const date = typeof d === "string" ? new Date(d) : d;
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
 /** Local "YYYY-MM-DD" for a date input, or "" when unset. */
-function dateInput(d: Date | null): string {
+function dateInput(value: Date | string | null): string {
+  const d = asDate(value);
   if (!d) return "";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function longDate(d: Date) {
+function longDate(value: Date | string) {
+  const d = asDate(value);
+  if (!d) return "—";
   return d.toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
@@ -32,7 +42,9 @@ function longDate(d: Date) {
 }
 
 /** Whole years between then and now — nulls out for future dates. */
-function yearsSince(d: Date): number | null {
+function yearsSince(value: Date | string): number | null {
+  const d = asDate(value);
+  if (!d) return null;
   const now = new Date();
   let y = now.getFullYear() - d.getFullYear();
   const before =
@@ -49,29 +61,14 @@ export default async function TeamMemberPage({
 }) {
   const session = await requirePageSession("ADMIN", "OWNER");
 
-  const user = await prisma.user.findUnique({
-    where: { id: params.id },
-    include: {
-      _count: { select: { tasksAssigned: true } },
-      payRateHistory: {
-        orderBy: { createdAt: "desc" },
-        include: { changedBy: { select: { name: true } } },
-      },
-    },
-  });
+  // Pay history and the weekly hours breakdown — including the business-zone
+  // week boundaries — come from the team service.
+  const result = await getTeamMember(session.user, params.id, { weeks: 8 });
+  if (!result.ok) throw new Error(result.error);
+  const user = result.data;
   if (!user) notFound();
 
-  const rate = toNumber(user.hourlyRate);
-  // Weeks start on the business Monday, not the server's.
-  const timezone = await getBusinessTimezone();
-  const weeks = await weeklyHours(user.id, {
-    weeks: 8,
-    hourlyRate: rate,
-    timezone,
-  });
-
-  const totalMinutes = weeks.reduce((s, w) => s + w.minutes, 0);
-  const totalPay = weeks.reduce((s, w) => s + (w.pay ?? 0), 0);
+  const { hourlyRate: rate, weeks, timezone, totalMinutes, totalPay } = user;
   const tenure = user.hiredOn ? yearsSince(user.hiredOn) : null;
 
   return (
@@ -116,7 +113,7 @@ export default async function TeamMemberPage({
             Birthday:{" "}
             <span className="font-semibold text-ink">
               {user.birthday
-                ? user.birthday.toLocaleDateString("en-US", {
+                ? asDate(user.birthday)!.toLocaleDateString("en-US", {
                     month: "long",
                     day: "numeric",
                   })
@@ -177,8 +174,8 @@ export default async function TeamMemberPage({
               </thead>
               <tbody className="divide-y divide-line/60">
                 {weeks.map((w) => (
-                  <tr key={w.weekStart.toISOString()}>
-                    <td className="py-2.5 text-ink">{weekLabel(w.weekStart, timezone)}</td>
+                  <tr key={w.weekStart}>
+                    <td className="py-2.5 text-ink">{weekLabel(new Date(w.weekStart), timezone)}</td>
                     <td className="py-2.5 text-right tabular-nums text-muted">
                       {w.jobs || "—"}
                     </td>
@@ -211,8 +208,8 @@ export default async function TeamMemberPage({
           ) : (
             <ul className="divide-y divide-line/60">
               {user.payRateHistory.map((h) => {
-                const from = toNumber(h.oldRate);
-                const to = toNumber(h.newRate) ?? 0;
+                const from = h.oldRate;
+                const to = h.newRate;
                 const raise = from !== null && to > from;
                 return (
                   <li
@@ -243,7 +240,7 @@ export default async function TeamMemberPage({
                       )}
                     </div>
                     <p className="shrink-0 text-xs text-faint">
-                      {longDate(h.createdAt)} · by {h.changedBy.name}
+                      {longDate(h.createdAt)} · by {h.changedBy ?? "a manager"}
                     </p>
                   </li>
                 );

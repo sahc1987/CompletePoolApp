@@ -1,6 +1,5 @@
 import Link from "next/link";
-import { prisma } from "@/lib/prisma";
-import { toNumber } from "@/lib/serialize";
+import { listTeam } from "@/server/services/userReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import DeleteButton from "@/components/DeleteButton";
@@ -10,7 +9,6 @@ import AddUserForm from "./AddUserForm";
 import ResetPasswordForm from "./ResetPasswordForm";
 import { toggleUserActive } from "./actions";
 import { requirePageSession } from "@/lib/guard";
-import { canAdminister, grantableRoles } from "@/lib/privileges";
 
 const ROLE_BLURB: Record<string, string> = {
   OWNER: "Dashboard + billing, and can manage the team",
@@ -26,35 +24,20 @@ function initials(name: string) {
 export default async function UsersPage() {
   const session = await requirePageSession("ADMIN", "OWNER");
 
-  const users = await prisma.user.findMany({
-    orderBy: [{ active: "desc" }, { role: "asc" }, { name: "asc" }],
-    include: { _count: { select: { tasksAssigned: true } } },
-  });
+  // Who may be administered, what roles this actor may hand out, and which row
+  // is the last active manager are all decided by the service — the same rules
+  // its write side enforces, so a control is never offered that would then be
+  // refused, and never hidden when it would in fact be allowed.
+  const team = await listTeam(session.user);
+  if (!team.ok) throw new Error(team.error);
+  const { members, activeCount, grantableRoles: roleOptions } = team.data;
 
-  const activeManagers = users.filter(
-    (u) => u.active && (u.role === "ADMIN" || u.role === "OWNER")
-  ).length;
-
-  // The last active admin/owner must keep their privileges, or nobody could
-  // administer the system afterwards; you also can't disable yourself.
-  // What this actor may hand out, and whom they may act on at all. An admin
-  // can no longer touch owner accounts, so the controls for them are hidden
-  // rather than shown and then rejected.
-  const actorRole = session.user.role;
-  const roleOptions = grantableRoles(actorRole);
-
-  const rows = users.map((u) => {
-    const isSelf = u.id === session.user.id;
-    const isLastManager =
-      (u.role === "ADMIN" || u.role === "OWNER") && u.active && activeManagers <= 1;
-    const administrable = canAdminister(actorRole, u.role);
-    return {
-      u,
-      isSelf,
-      administrable,
-      locked: isSelf || isLastManager || !administrable,
-    };
-  });
+  const rows = members.map((u) => ({
+    u,
+    isSelf: u.isSelf,
+    administrable: u.administrable,
+    locked: u.locked,
+  }));
 
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
@@ -65,7 +48,7 @@ export default async function UsersPage() {
         action={
           <div className="flex items-center gap-3">
             <span className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-muted shadow-sm">
-              {users.filter((u) => u.active).length} active
+              {activeCount} active
             </span>
             <ModalButton
               label="Add team member"
@@ -124,9 +107,9 @@ export default async function UsersPage() {
 
             <div className="mt-3 flex items-center justify-between gap-2 border-t border-line/60 pt-3">
               <span className="text-[12px] text-faint">
-                {u._count.tasksAssigned || 0} job{u._count.tasksAssigned === 1 ? "" : "s"}
+                {u.assignedTaskCount || 0} job{u.assignedTaskCount === 1 ? "" : "s"}
                 {u.hourlyRate !== null && (
-                  <> · ${toNumber(u.hourlyRate)?.toFixed(2)}/hr</>
+                  <> · ${u.hourlyRate?.toFixed(2)}/hr</>
                 )}
               </span>
               <div className="flex items-center gap-1">
@@ -233,7 +216,7 @@ export default async function UsersPage() {
                     ) : (
                       <>
                         <span className="font-semibold text-ink">
-                          ${toNumber(u.hourlyRate)?.toFixed(2)}
+                          ${u.hourlyRate?.toFixed(2)}
                         </span>
                         <span className="text-faint">/hr</span>
                       </>
@@ -241,7 +224,7 @@ export default async function UsersPage() {
                   </td>
 
                   <td className="hidden px-5 py-4 text-right tabular-nums text-muted sm:table-cell">
-                    {u._count.tasksAssigned || "—"}
+                    {u.assignedTaskCount || "—"}
                   </td>
 
                   <td className="px-4 py-4 sm:px-5">

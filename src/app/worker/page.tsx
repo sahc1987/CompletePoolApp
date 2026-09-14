@@ -1,4 +1,8 @@
-import { prisma } from "@/lib/prisma";
+import { listMyTasks } from "@/server/services/taskReads";
+import {
+  listMyMaterialRequests,
+  listUsableMaterials,
+} from "@/server/services/materialReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import StatusBadge from "@/components/StatusBadge";
@@ -11,17 +15,22 @@ import SubmitTaskForm from "./SubmitTaskForm";
 import MaterialRequestForm from "./MaterialRequestForm";
 import { requirePageSession } from "@/lib/guard";
 
-function fmtTime(d: Date) {
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+// Instants arrive from the task service as ISO strings.
+const asDate = (d: Date | string) => (typeof d === "string" ? new Date(d) : d);
+
+function fmtTime(d: Date | string) {
+  return asDate(d).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
-function fmtDay(d: Date) {
-  return d.toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
+function fmtDay(d: Date | string) {
+  return asDate(d).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" });
 }
-function sameDay(a: Date, b: Date) {
+function sameDay(a: Date | string, b: Date | string) {
+  const x = asDate(a);
+  const y = asDate(b);
   return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
+    x.getFullYear() === y.getFullYear() &&
+    x.getMonth() === y.getMonth() &&
+    x.getDate() === y.getDate()
   );
 }
 
@@ -29,35 +38,21 @@ export default async function WorkerPage() {
   const session = await requirePageSession("WORKER");
 
   // Active jobs only — approved/cancelled drop off the worker's list.
-  const tasks = await prisma.task.findMany({
-    where: {
-      workerId: session.user.id,
-      status: { in: ["SCHEDULED", "IN_PROGRESS", "SUBMITTED", "FLAGGED"] },
-    },
-    include: {
-      client: { select: { name: true, phone: true } },
-      pool: { select: { address: true } },
-      service: { select: { name: true } },
-    },
-    orderBy: { startTime: "asc" },
-  });
-
-  const materials = await prisma.material.findMany({
-    where: { active: true },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, unit: true },
-  });
-
-  const requests = await prisma.materialRequest.findMany({
-    where: { workerId: session.user.id },
-    include: { material: { select: { name: true } } },
-    orderBy: { createdAt: "desc" },
-    take: 10,
-  });
+  const [tasksResult, materialsResult, requestsResult] = await Promise.all([
+    listMyTasks(session.user),
+    listUsableMaterials(session.user),
+    listMyMaterialRequests(session.user, { take: 10 }),
+  ]);
+  if (!tasksResult.ok) throw new Error(tasksResult.error);
+  if (!materialsResult.ok) throw new Error(materialsResult.error);
+  if (!requestsResult.ok) throw new Error(requestsResult.error);
+  const tasks = tasksResult.data;
+  const materials = materialsResult.data;
+  const requests = requestsResult.data;
 
   const taskOptions = tasks.map((t) => ({
     id: t.id,
-    label: `${t.client.name} — ${t.service.name}`,
+    label: `${t.clientName} — ${t.serviceName}`,
   }));
 
   const requestStatusStyle: Record<string, string> = {
@@ -80,7 +75,7 @@ export default async function WorkerPage() {
   const laterByDay = new Map<string, Job[]>();
   for (const t of rest) {
     if (sameDay(t.startTime, now) || sameDay(t.startTime, tomorrow)) continue;
-    const key = t.startTime.toDateString();
+    const key = asDate(t.startTime).toDateString();
     laterByDay.set(key, [...(laterByDay.get(key) ?? []), t]);
   }
 
@@ -164,9 +159,9 @@ export default async function WorkerPage() {
                     </div>
 
                     <div className="text-lg font-semibold leading-tight text-ink">
-                      {t.client.name}
+                      {t.clientName}
                     </div>
-                    <div className="text-[15px] text-muted">{t.service.name}</div>
+                    <div className="text-[15px] text-muted">{t.serviceName}</div>
 
                     {t.notes && (
                       <p className="mt-2 rounded-lg bg-chrome-100 px-3 py-2 text-sm text-navy-900">
@@ -183,23 +178,23 @@ export default async function WorkerPage() {
                     {/* Field actions: navigate + call, one tap each */}
                     <div className="mt-3 flex flex-wrap gap-2">
                       <a
-                        href={`https://maps.google.com/?q=${encodeURIComponent(t.pool.address)}`}
+                        href={`https://maps.google.com/?q=${encodeURIComponent(t.poolAddress)}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex flex-1 items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-medium text-ink transition hover:border-navy-500/40 hover:bg-chrome-100"
                       >
                         <Icon name="pin" size={16} className="shrink-0 text-navy-700" />
-                        <span className="truncate">{t.pool.address}</span>
+                        <span className="truncate">{t.poolAddress}</span>
                       </a>
-                      {t.client.phone && (
+                      {t.clientPhone && (
                         <a
-                          href={`tel:${t.client.phone.replace(/[^\d+]/g, "")}`}
+                          href={`tel:${t.clientPhone.replace(/[^\d+]/g, "")}`}
                           className="inline-flex items-center gap-2 rounded-xl border border-line bg-surface px-3 py-2.5 text-sm font-medium text-ink transition hover:border-navy-500/40 hover:bg-chrome-100"
-                          aria-label={`Call ${t.client.name}`}
+                          aria-label={`Call ${t.clientName}`}
                         >
                           <Icon name="phone" size={16} className="text-navy-700" />
                           <span className="sm:hidden">Call</span>
-                          <span className="hidden sm:inline">{t.client.phone}</span>
+                          <span className="hidden sm:inline">{t.clientPhone}</span>
                         </a>
                       )}
                     </div>
@@ -262,8 +257,8 @@ export default async function WorkerPage() {
                   className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2 text-sm last:border-0"
                 >
                   <span className="text-ink">
-                    {r.material?.name ?? r.description}{" "}
-                    <span className="text-faint">× {Number(r.quantityRequested)}</span>
+                    {r.materialName ?? r.description}{" "}
+                    <span className="text-faint">× {r.quantityRequested}</span>
                     {r.urgent && (
                       <span className="ml-1 text-xs font-semibold text-danger">urgent</span>
                     )}

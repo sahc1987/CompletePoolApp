@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/prisma";
+import { listReviewQueue } from "@/server/services/taskReads";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import ActionForm from "@/components/ActionForm";
@@ -8,8 +8,11 @@ import { approveTask } from "./actions";
 import FlagForm from "./FlagForm";
 import { requirePageSession } from "@/lib/guard";
 
-function fmt(d: Date) {
-  return d.toLocaleString("en-US", {
+// Instants arrive from the task service as ISO strings. Converting is not
+// optional: String.prototype.toLocaleString ignores the options below and
+// would quietly print a raw ISO timestamp instead.
+function fmt(d: Date | string) {
+  return (typeof d === "string" ? new Date(d) : d).toLocaleString("en-US", {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -21,20 +24,11 @@ function fmt(d: Date) {
 export default async function ReviewPage() {
   const session = await requirePageSession("ADMIN");
 
-  const tasks = await prisma.task.findMany({
-    where: { status: "SUBMITTED" },
-    include: {
-      client: { select: { name: true } },
-      pool: { select: { address: true } },
-      service: { select: { name: true } },
-      worker: { select: { name: true } },
-      extras: { include: { extraService: { select: { name: true } } } },
-      // Approving raises the bill, and materials are part of what it charges —
-      // so they belong in front of whoever approves it.
-      materials: { include: { material: { select: { name: true, unit: true } } } },
-    },
-    orderBy: { submittedAt: "asc" },
-  });
+  // Approving raises the bill, and materials are part of what it charges — so
+  // the service sends them along with each row.
+  const result = await listReviewQueue(session.user);
+  if (!result.ok) throw new Error(result.error);
+  const tasks = result.data;
 
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
@@ -63,16 +57,16 @@ export default async function ReviewPage() {
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="font-semibold text-ink">
-                    {t.client.name} — {t.service.name}
+                    {t.clientName} — {t.serviceName}
                   </div>
-                  <div className="text-sm text-muted">{t.pool.address}</div>
+                  <div className="text-sm text-muted">{t.poolAddress}</div>
                   <div className="mt-1 text-sm text-muted">
-                    {t.worker.name} · submitted{" "}
+                    {t.workerName} · submitted{" "}
                     {t.submittedAt ? fmt(t.submittedAt) : "—"}
                   </div>
                   {t.extras.length > 0 && (
                     <div className="mt-1 text-sm text-muted">
-                      Extras: {t.extras.map((e) => e.extraService.name).join(", ")}
+                      Extras: {t.extras.map((e) => e.name).join(", ")}
                     </div>
                   )}
                   {t.materials.length > 0 && (
@@ -81,8 +75,8 @@ export default async function ReviewPage() {
                       {t.materials
                         .map(
                           (m) =>
-                            `${m.material.name} (${toNumber(m.quantityUsed) ?? 0} ${
-                              m.material.unit
+                            `${m.name} (${toNumber(m.quantityUsed) ?? 0} ${
+                              m.unit
                             })`
                         )
                         .join(", ")}
