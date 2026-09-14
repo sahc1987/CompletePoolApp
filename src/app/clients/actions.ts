@@ -1,93 +1,65 @@
 "use server";
 
-import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { requireRole } from "@/lib/guard";
+import { opt, str } from "@/lib/formData";
+import * as clientsService from "@/server/services/clients";
 import type { ActionState } from "@/lib/actions";
 
-const clientSchema = z.object({
-  name: z.string().trim().min(1, "Name is required"),
-  phone: z.string().trim().optional(),
-  email: z.string().trim().email("That email doesn't look right").or(z.literal("")).optional(),
-  address: z.string().trim().optional(),
-  notes: z.string().trim().optional(),
+// Read the shared client/pool fields off a form once.
+const clientFields = (formData: FormData) => ({
+  name: str(formData, "name"),
+  phone: opt(formData, "phone"),
+  email: opt(formData, "email"),
+  address: opt(formData, "address"),
+  notes: opt(formData, "notes"),
 });
 
-const poolSchema = z.object({
-  address: z.string().trim().min(1, "Address is required"),
-  size: z.string().trim().optional(),
-  type: z.string().trim().optional(),
+const poolFields = (formData: FormData) => ({
+  address: str(formData, "address"),
+  size: opt(formData, "size"),
+  type: opt(formData, "type"),
 });
 
 export async function createClient(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireRole("ADMIN");
-  const parsed = clientSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { name, phone, email, address, notes } = parsed.data;
+  const actor = await requireRole("ADMIN");
+  const res = await clientsService.createClient(actor, clientFields(formData));
+  if (!res.ok) return { error: res.error };
 
-  const client = await prisma.client.create({
-    data: {
-      name,
-      phone: phone || null,
-      email: email || null,
-      address: address || null,
-      notes: notes || null,
-    },
-  });
   revalidatePath("/clients");
-  redirect(`/clients/${client.id}`);
+  redirect(`/clients/${res.data.id}`);
 }
 
 export async function updateClient(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireRole("ADMIN");
-  const id = String(formData.get("id") ?? "");
-  if (!id) return { error: "Missing client id" };
-  const parsed = clientSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { name, phone, email, address, notes } = parsed.data;
-
-  await prisma.client.update({
-    where: { id },
-    data: {
-      name,
-      phone: phone || null,
-      email: email || null,
-      address: address || null,
-      notes: notes || null,
-    },
+  const actor = await requireRole("ADMIN");
+  const id = str(formData, "id");
+  const res = await clientsService.updateClient(actor, {
+    id,
+    ...clientFields(formData),
   });
+  if (!res.ok) return { error: res.error };
+
   revalidatePath("/clients");
   revalidatePath(`/clients/${id}`);
   return { ok: true };
 }
 
 export async function deleteClient(formData: FormData): Promise<void> {
-  await requireRole("ADMIN");
-  const id = String(formData.get("id") ?? "");
-  if (!id) return;
+  const actor = await requireRole("ADMIN");
+  const res = await clientsService.deleteClient(actor, {
+    id: str(formData, "id"),
+  });
+  // This action has no state to render into, so a refusal surfaces the same way
+  // it always has: as an error boundary rather than a silent no-op.
+  if (!res.ok) throw new Error(res.error);
 
-  // Don't orphan history: block deletion if the client has any tasks or
-  // estimates. Pools with no tasks are removed alongside the client.
-  const [taskCount, estimateCount] = await Promise.all([
-    prisma.task.count({ where: { clientId: id } }),
-    prisma.estimate.count({ where: { clientId: id } }),
-  ]);
-  if (taskCount > 0 || estimateCount > 0) {
-    throw new Error(
-      "This client has tasks or estimates on record and can't be deleted."
-    );
-  }
-
-  await prisma.pool.deleteMany({ where: { clientId: id } });
-  await prisma.client.delete({ where: { id } });
   revalidatePath("/clients");
   redirect("/clients");
 }
@@ -96,16 +68,14 @@ export async function createPool(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireRole("ADMIN");
-  const clientId = String(formData.get("clientId") ?? "");
-  if (!clientId) return { error: "Missing client id" };
-  const parsed = poolSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { address, size, type } = parsed.data;
-
-  await prisma.pool.create({
-    data: { clientId, address, size: size || null, type: type || null },
+  const actor = await requireRole("ADMIN");
+  const clientId = str(formData, "clientId");
+  const res = await clientsService.createPool(actor, {
+    clientId,
+    ...poolFields(formData),
   });
+  if (!res.ok) return { error: res.error };
+
   revalidatePath(`/clients/${clientId}`);
   return { ok: true };
 }
@@ -114,32 +84,23 @@ export async function updatePool(
   _prev: ActionState,
   formData: FormData
 ): Promise<ActionState> {
-  await requireRole("ADMIN");
-  const id = String(formData.get("id") ?? "");
-  const clientId = String(formData.get("clientId") ?? "");
-  if (!id) return { error: "Missing pool id" };
-  const parsed = poolSchema.safeParse(Object.fromEntries(formData));
-  if (!parsed.success) return { error: parsed.error.errors[0].message };
-  const { address, size, type } = parsed.data;
-
-  await prisma.pool.update({
-    where: { id },
-    data: { address, size: size || null, type: type || null },
+  const actor = await requireRole("ADMIN");
+  const res = await clientsService.updatePool(actor, {
+    id: str(formData, "id"),
+    ...poolFields(formData),
   });
-  revalidatePath(`/clients/${clientId}`);
+  if (!res.ok) return { error: res.error };
+
+  revalidatePath(`/clients/${str(formData, "clientId")}`);
   return { ok: true };
 }
 
 export async function deletePool(formData: FormData): Promise<void> {
-  await requireRole("ADMIN");
-  const id = String(formData.get("id") ?? "");
-  const clientId = String(formData.get("clientId") ?? "");
-  if (!id) return;
+  const actor = await requireRole("ADMIN");
+  const res = await clientsService.deletePool(actor, {
+    id: str(formData, "id"),
+  });
+  if (!res.ok) throw new Error(res.error);
 
-  const taskCount = await prisma.task.count({ where: { poolId: id } });
-  if (taskCount > 0) {
-    throw new Error("This pool has tasks on record and can't be deleted.");
-  }
-  await prisma.pool.delete({ where: { id } });
-  revalidatePath(`/clients/${clientId}`);
+  revalidatePath(`/clients/${str(formData, "clientId")}`);
 }
