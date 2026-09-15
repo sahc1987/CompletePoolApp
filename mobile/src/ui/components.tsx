@@ -1,0 +1,328 @@
+import { type ReactNode } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  type StyleProp,
+  type TextInputProps,
+  type ViewStyle,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { HIT_SIZE, color, radius, space, statusTone, type } from "./theme";
+import { useLayout } from "./useLayout";
+
+/**
+ * The shared pieces every screen is built from. Kept deliberately small — a
+ * component earns its place here once a second screen needs it.
+ */
+
+/** Page frame: safe area, background, and the tablet width cap. */
+export function Screen({
+  children,
+  scroll = true,
+  refreshControl,
+  style,
+}: {
+  children: ReactNode;
+  scroll?: boolean;
+  refreshControl?: React.ComponentProps<typeof ScrollView>["refreshControl"];
+  style?: StyleProp<ViewStyle>;
+}) {
+  const insets = useSafeAreaInsets();
+  const { contentMaxWidth } = useLayout();
+
+  const inner = (
+    <View style={[{ width: "100%", maxWidth: contentMaxWidth, alignSelf: "center" }, style]}>
+      {children}
+    </View>
+  );
+
+  if (!scroll) {
+    return (
+      <View style={[s.screen, { paddingBottom: insets.bottom }]}>{inner}</View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={s.screen}
+      contentContainerStyle={{
+        padding: space.lg,
+        // Clear of the home indicator, plus room so the last card isn't flush
+        // against the tab bar.
+        paddingBottom: insets.bottom + space.xxl,
+      }}
+      refreshControl={refreshControl}
+      keyboardShouldPersistTaps="handled"
+    >
+      {inner}
+    </ScrollView>
+  );
+}
+
+export function Card({
+  children,
+  style,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+}) {
+  return <View style={[s.card, style]}>{children}</View>;
+}
+
+export function Heading({ children }: { children: ReactNode }) {
+  return <Text style={s.heading}>{children}</Text>;
+}
+
+export function Title({ children }: { children: ReactNode }) {
+  return <Text style={s.title}>{children}</Text>;
+}
+
+export function Body({
+  children,
+  tone = "ink",
+}: {
+  children: ReactNode;
+  tone?: "ink" | "muted" | "faint" | "danger";
+}) {
+  return <Text style={[s.body, { color: color[tone] }]}>{children}</Text>;
+}
+
+export function Label({ children }: { children: ReactNode }) {
+  return <Text style={s.label}>{children}</Text>;
+}
+
+export function Button({
+  title,
+  onPress,
+  variant = "primary",
+  disabled,
+  loading,
+  style,
+}: {
+  title: string;
+  onPress: () => void;
+  variant?: "primary" | "secondary" | "danger";
+  disabled?: boolean;
+  loading?: boolean;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const inert = disabled || loading;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !!inert, busy: !!loading }}
+      onPress={onPress}
+      disabled={inert}
+      style={({ pressed }) => [
+        s.button,
+        variant === "primary" && s.buttonPrimary,
+        variant === "secondary" && s.buttonSecondary,
+        variant === "danger" && s.buttonDanger,
+        pressed && !inert && s.buttonPressed,
+        inert && s.buttonDisabled,
+        style,
+      ]}
+    >
+      {loading ? (
+        <ActivityIndicator
+          color={variant === "secondary" ? color.navy700 : color.white}
+        />
+      ) : (
+        <Text
+          style={[
+            s.buttonText,
+            variant === "secondary" && { color: color.navy700 },
+          ]}
+        >
+          {title}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
+export function Field({
+  label,
+  error,
+  ...props
+}: TextInputProps & { label: string; error?: string | null }) {
+  return (
+    <View style={{ marginBottom: space.lg }}>
+      <Text style={s.fieldLabel}>{label}</Text>
+      <TextInput
+        accessibilityLabel={label}
+        placeholderTextColor={color.faint}
+        style={[s.input, !!error && { borderColor: color.danger }]}
+        {...props}
+      />
+      {!!error && <Text style={s.fieldError}>{error}</Text>}
+    </View>
+  );
+}
+
+export function StatusBadge({ status }: { status: string }) {
+  const tone = statusTone[status] ?? {
+    label: status,
+    fg: color.faint,
+    bg: color.chrome100,
+  };
+  return (
+    <View style={[s.badge, { backgroundColor: tone.bg }]}>
+      <Text style={[s.badgeText, { color: tone.fg }]}>{tone.label}</Text>
+    </View>
+  );
+}
+
+/**
+ * What a screen shows instead of a blank page. Always says what would be here
+ * and, where there is one, what to do about it — "nothing yet" alone reads as
+ * a failure.
+ */
+export function Empty({
+  title,
+  detail,
+}: {
+  title: string;
+  detail?: string;
+}) {
+  return (
+    <Card style={{ alignItems: "center", paddingVertical: space.xxl }}>
+      <Text style={s.emptyTitle}>{title}</Text>
+      {!!detail && <Text style={s.emptyDetail}>{detail}</Text>}
+    </Card>
+  );
+}
+
+/** A failure the user can act on: what went wrong, and a way to try again. */
+export function ErrorNotice({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <Card style={{ borderColor: color.danger, borderWidth: 1 }}>
+      <Text style={[s.body, { color: color.danger }]}>{message}</Text>
+      {!!onRetry && (
+        <Button
+          title="Try again"
+          variant="secondary"
+          onPress={onRetry}
+          style={{ marginTop: space.md }}
+        />
+      )}
+    </Card>
+  );
+}
+
+export function Loading({ label }: { label?: string }) {
+  return (
+    <View style={s.loading}>
+      <ActivityIndicator size="large" color={color.navy700} />
+      {!!label && (
+        <Text style={[s.body, { color: color.muted, marginTop: space.md }]}>
+          {label}
+        </Text>
+      )}
+    </View>
+  );
+}
+
+/** A label/value pair, used down the detail screens. */
+export function Row({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <View style={s.row}>
+      <Text style={s.rowLabel}>{label}</Text>
+      <View style={{ flex: 1, alignItems: "flex-end" }}>
+        {typeof value === "string" ? (
+          <Text style={s.rowValue}>{value}</Text>
+        ) : (
+          value
+        )}
+      </View>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: color.surface },
+  card: {
+    backgroundColor: color.white,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: color.line,
+    padding: space.lg,
+    marginBottom: space.md,
+  },
+  title: { ...type.title, color: color.ink, marginBottom: space.sm },
+  heading: { ...type.heading, color: color.ink, marginBottom: space.sm },
+  body: { ...type.body, color: color.ink, lineHeight: 22 },
+  label: {
+    ...type.label,
+    color: color.faint,
+    marginBottom: space.sm,
+  },
+  button: {
+    minHeight: HIT_SIZE,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: space.lg,
+  },
+  buttonPrimary: { backgroundColor: color.teal700 },
+  buttonSecondary: {
+    backgroundColor: color.white,
+    borderWidth: 1,
+    borderColor: color.field,
+  },
+  buttonDanger: { backgroundColor: color.danger },
+  buttonPressed: { opacity: 0.85 },
+  buttonDisabled: { opacity: 0.5 },
+  buttonText: { ...type.bodyStrong, color: color.white },
+  fieldLabel: {
+    ...type.label,
+    color: color.muted,
+    marginBottom: space.xs,
+  },
+  input: {
+    minHeight: HIT_SIZE,
+    borderWidth: 1,
+    borderColor: color.field,
+    borderRadius: radius.md,
+    paddingHorizontal: space.md,
+    backgroundColor: color.white,
+    ...type.body,
+    color: color.ink,
+  },
+  fieldError: { ...type.small, color: color.danger, marginTop: space.xs },
+  badge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: space.sm + 2,
+    paddingVertical: space.xs,
+    borderRadius: radius.pill,
+  },
+  badgeText: { fontSize: 12, fontWeight: "700" },
+  emptyTitle: { ...type.bodyStrong, color: color.ink, textAlign: "center" },
+  emptyDetail: {
+    ...type.small,
+    color: color.muted,
+    textAlign: "center",
+    marginTop: space.xs,
+  },
+  loading: { padding: space.xxl, alignItems: "center" },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: space.lg,
+    paddingVertical: space.sm,
+  },
+  rowLabel: { ...type.small, color: color.muted },
+  rowValue: { ...type.bodyStrong, color: color.ink, textAlign: "right" },
+});

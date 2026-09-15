@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { paidAmount } from "@/lib/billing";
+import { getBusinessTimezone } from "@/lib/schedule";
+import { addZonedDays, zonedDayKey } from "@/lib/timezone";
 import { assertRole, type Actor } from "@/server/actor";
 import { iso, requiredIso, requiredMoney } from "@/server/serialize";
 import { ok, type ServiceResult } from "@/server/result";
@@ -33,15 +35,47 @@ export type TaskExtraRow = {
   price: number;
 };
 
+/**
+ * Which calendar day the business considers "now".
+ *
+ * A phone carries its own timezone and a worker can cross one; the server runs
+ * UTC on Vercel. Neither is the business's clock. Handing these down as plain
+ * `YYYY-MM-DD` strings means a client groups its jobs by string equality and
+ * never does timezone arithmetic of its own — which is the only way the phone
+ * and the office agree on what "today" means.
+ */
+export type BusinessDay = {
+  /** IANA zone the whole business runs on. */
+  timezone: string;
+  today: string;
+  tomorrow: string;
+};
+
+export async function getBusinessDay(): Promise<BusinessDay> {
+  const timezone = await getBusinessTimezone();
+  const now = new Date();
+  return {
+    timezone,
+    today: zonedDayKey(now, timezone),
+    tomorrow: zonedDayKey(addZonedDays(now, 1, timezone), timezone),
+  };
+}
+
 export type WorkerTaskRow = {
   id: string;
   status: TaskStatusValue;
   /**
-   * Absolute instant the job starts. Which calendar day that falls on is a
-   * business-timezone question, not a device one — resolve it against
-   * `AppSettings.timezone`, never the phone's clock.
+   * Absolute instant the job starts, for rendering a time of day.
+   *
+   * Do not derive a calendar day from this on a device — see `dayKey`.
    */
   startTime: string;
+  /**
+   * The business-local calendar day this job falls on, `YYYY-MM-DD`.
+   *
+   * Compare it against `BusinessDay.today`/`tomorrow` by string equality.
+   */
+  dayKey: string;
   durationMin: number;
   price: number;
   notes: string | null;
@@ -73,6 +107,7 @@ export async function listMyTasks(
   const denied = assertRole(actor, "WORKER");
   if (denied) return denied;
 
+  const timezone = await getBusinessTimezone();
   const tasks = await prisma.task.findMany({
     where: {
       workerId: actor.id,
@@ -91,6 +126,7 @@ export async function listMyTasks(
       id: t.id,
       status: t.status as TaskStatusValue,
       startTime: requiredIso(t.startTime),
+      dayKey: zonedDayKey(t.startTime, timezone),
       durationMin: t.durationMin,
       price: requiredMoney(t.price),
       notes: t.notes,
@@ -116,6 +152,7 @@ export async function listReviewQueue(
   const denied = assertRole(actor, "ADMIN");
   if (denied) return denied;
 
+  const timezone = await getBusinessTimezone();
   const tasks = await prisma.task.findMany({
     where: { status: "SUBMITTED" },
     include: {
@@ -136,6 +173,7 @@ export async function listReviewQueue(
       id: t.id,
       status: t.status as TaskStatusValue,
       startTime: requiredIso(t.startTime),
+      dayKey: zonedDayKey(t.startTime, timezone),
       durationMin: t.durationMin,
       price: requiredMoney(t.price),
       notes: t.notes,
