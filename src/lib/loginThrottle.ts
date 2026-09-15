@@ -112,10 +112,11 @@ const SOURCE_LOCKOUT_MS = 15 * 60 * 1000;
  * a bare origin, so this throttle is a speed bump for spraying rather than a
  * hard authorisation boundary — the per-account lock remains the real limit.
  */
-export function clientIp(headers: {
-  get?: (k: string) => string | null | undefined;
-  [k: string]: unknown;
-}): string {
+export function clientIp(
+  headers:
+    | Headers
+    | { get?: (k: string) => string | null | undefined; [k: string]: unknown }
+): string {
   const read = (k: string): string | undefined => {
     if (typeof headers.get === "function") return headers.get(k) ?? undefined;
     const v = (headers as Record<string, unknown>)[k];

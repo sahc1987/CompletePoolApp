@@ -3,6 +3,7 @@ import { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { canAdminister, canGrantRole, ROLE_LABEL } from "@/lib/privileges";
 import { notifyUser } from "@/lib/notify";
+import { revokeAllForUser } from "@/server/api/tokens";
 import { assertRole, type Actor } from "@/server/actor";
 import {
   conflict,
@@ -209,6 +210,12 @@ export async function toggleUserActive(
     where: { id: userId },
     data: { active: !target.active },
   });
+
+  // Disabling blocks the next web sign-in immediately, but a phone holds a
+  // refresh token good for 30 days. Revoking here is what makes "disabled"
+  // mean disabled on every device rather than only in the browser.
+  if (!updated.active) await revokeAllForUser(userId);
+
   return ok({ active: updated.active });
 }
 
@@ -269,6 +276,11 @@ export async function resetUserPassword(
     where: { id: found.target.id },
     data: { passwordHash: await bcrypt.hash(parsed.data.password, 10) },
   });
+
+  // A reset is usually a response to someone having lost control of the
+  // account. Any device still holding a refresh token would keep that access
+  // for a month, so the new password would lock out only the legitimate owner.
+  await revokeAllForUser(found.target.id);
 
   // A reset hands someone else control of an account; leave a trace the target
   // will see rather than letting it happen silently.

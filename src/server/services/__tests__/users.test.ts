@@ -152,6 +152,43 @@ describe("the last active manager", () => {
   });
 });
 
+/**
+ * A native client holds a refresh token good for 30 days. Without these, an
+ * account could be disabled — or have its password reset out from under
+ * whoever took it over — and the phone in their pocket would keep working
+ * until the token aged out.
+ */
+describe("revoking mobile sessions", () => {
+  it("signs every device out when an account is disabled", async () => {
+    prismaMock.user.update.mockResolvedValue({ id: "target-1", active: false });
+    await toggleUserActive(admin, { userId: "target-1" });
+    expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "target-1", revokedAt: null },
+      })
+    );
+  });
+
+  it("leaves sessions alone when an account is re-enabled", async () => {
+    seedTarget({ active: false });
+    prismaMock.user.update.mockResolvedValue({ id: "target-1", active: true });
+    await toggleUserActive(admin, { userId: "target-1" });
+    expect(prismaMock.refreshToken.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("signs every device out when a manager resets a password", async () => {
+    await resetUserPassword(admin, {
+      userId: "target-1",
+      password: "a-long-enough-password",
+    });
+    expect(prismaMock.refreshToken.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: "target-1", revokedAt: null },
+      })
+    );
+  });
+});
+
 describe("createUser", () => {
   it("refuses an email already in use", async () => {
     prismaMock.user.findUnique.mockResolvedValue({ id: "someone-else" });

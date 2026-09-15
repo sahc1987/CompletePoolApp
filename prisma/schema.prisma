@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   // Pooled connection (Supabase pgbouncer) used at runtime by the app.
   url       = env("DATABASE_URL")
   // Direct connection used for migrations, which pgbouncer cannot proxy.
@@ -96,14 +96,15 @@ model User {
   failedLoginAttempts Int       @default(0)
   lockedUntil         DateTime?
 
-  tasksAssigned Task[] @relation("AssignedWorker")
-  tasksApproved Task[] @relation("ApprovedBy")
+  tasksAssigned             Task[]            @relation("AssignedWorker")
+  tasksApproved             Task[]            @relation("ApprovedBy")
   materialRequestsMade      MaterialRequest[] @relation("RequestedBy")
   materialRequestsResponded MaterialRequest[] @relation("RespondedBy")
   estimatesCreated          Estimate[]        @relation("EstimateCreatedBy")
   paymentsRecorded          Payment[]         @relation("PaymentRecordedBy")
   paymentsReversed          PaymentReversal[] @relation("PaymentReversedBy")
   notifications             Notification[]
+  refreshTokens             RefreshToken[]
   payRateHistory            PayRateChange[]   @relation("PayRateSubject")
   payRateChangesMade        PayRateChange[]   @relation("PayRateChangedBy")
 }
@@ -120,7 +121,7 @@ model PayRateChange {
   newRate Decimal  @db.Decimal(10, 2)
 
   changedById String
-  changedBy   User   @relation("PayRateChangedBy", fields: [changedById], references: [id])
+  changedBy   User    @relation("PayRateChangedBy", fields: [changedById], references: [id])
   note        String?
 
   createdAt DateTime @default(now())
@@ -135,33 +136,84 @@ model PayRateChange {
 // read/upsert targets the same row. Times are minutes from local midnight,
 // which keeps comparisons trivial and avoids storing an ambiguous "HH:MM".
 model AppSettings {
-  id              String   @id @default("app")
-  workdayStartMin Int      @default(480) // 08:00
-  workdayEndMin   Int      @default(1140) // 19:00
+  id              String @id @default("app")
+  workdayStartMin Int    @default(480) // 08:00
+  workdayEndMin   Int    @default(1140) // 19:00
   // IANA zone the whole business runs on. Job times, business hours, "today"
   // and week boundaries are all interpreted against this rather than the
   // server's clock, which is UTC on Vercel.
-  timezone        String   @default("America/New_York")
+  timezone        String @default("America/New_York")
 
   // Business identity printed on invoices and receipts. A document with no
   // return address, phone or tax id isn't something a customer can act on or
   // file, so these are part of the paperwork rather than decoration.
-  companyName     String   @default("Complete Pool Service Inc.")
-  companyTagline  String?
-  companyAddress  String?
-  companyPhone    String?
-  companyEmail    String?
-  companyWebsite  String?
+  companyName    String  @default("Complete Pool Service Inc.")
+  companyTagline String?
+  companyAddress String?
+  companyPhone   String?
+  companyEmail   String?
+  companyWebsite String?
   // EIN / business or contractor licence number, shown under the address.
-  companyTaxId    String?
+  companyTaxId   String?
   // e.g. "Due upon receipt", "Net 15". Printed in the invoice terms block.
-  paymentTerms    String   @default("Due upon receipt")
+  paymentTerms   String  @default("Due upon receipt")
   // How to pay — appears under the totals on an unpaid invoice.
-  paymentNote     String?
+  paymentNote    String?
   // Closing line on both documents, e.g. warranty or thank-you wording.
-  documentFooter  String?
+  documentFooter String?
 
-  updatedAt       DateTime @updatedAt
+  updatedAt DateTime @updatedAt
+}
+
+// A native client's long-lived credential. The web signs in with a cookie that
+// NextAuth manages; a phone has no cookie jar worth trusting, so it holds a
+// short access token plus one of these to mint the next one.
+//
+// The row stores a SHA-256 of the token, never the token: a read of this table
+// must not yield anything usable. Hashing is plain SHA-256 rather than bcrypt
+// because the value is 256 bits of CSPRNG output — there is no dictionary to
+// slow an attacker down to, and bcrypt's 72-byte input limit would silently
+// truncate longer tokens.
+model RefreshToken {
+  id        String @id @default(cuid())
+  tokenHash String @unique
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Every token minted by rotating an earlier one keeps its ancestor's family.
+  // Presenting an already-rotated token means two clients hold the lineage —
+  // i.e. one of them stole it — so the whole family is revoked at once.
+  familyId String
+
+  issuedAt  DateTime  @default(now())
+  expiresAt DateTime
+  /// Set when this token was exchanged. A second use after this is the theft signal.
+  usedAt    DateTime?
+  revokedAt DateTime?
+
+  /// Recorded so a future "signed-in devices" screen can name them.
+  userAgent String?
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+}
+
+// Fixed-window request throttle for the API's auth endpoints.
+//
+// Deliberately a table rather than an in-process map: the app runs as
+// serverless functions, so an in-memory counter would be per-instance and a
+// caller hitting a cold instance each time would never be limited. Distinct
+// from LoginAttempt/LoginSource, which count *failed sign-ins* — this counts
+// requests, so hammering /auth/refresh with garbage is bounded too.
+model ApiRateLimit {
+  /// "<route>:<client ip>".
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([updatedAt])
 }
 
 // Sign-in throttling, keyed by the email that was typed — deliberately not by
@@ -210,10 +262,10 @@ model Notification {
 }
 
 model Client {
-  id    String  @id @default(cuid())
-  name  String
-  phone String?
-  email String?
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  email     String?
   // The client's own (billing/mailing) address. Distinct from Pool.address,
   // which is the service location — a client may be billed somewhere else.
   address   String?
@@ -233,7 +285,7 @@ model Pool {
   size     String?
   type     String?
 
-  tasks Task[]
+  tasks     Task[]
   estimates Estimate[]
 }
 
@@ -265,15 +317,15 @@ model RecurrenceRule {
 }
 
 model Task {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   clientId  String
-  client    Client   @relation(fields: [clientId], references: [id])
+  client    Client  @relation(fields: [clientId], references: [id])
   poolId    String
-  pool      Pool     @relation(fields: [poolId], references: [id])
+  pool      Pool    @relation(fields: [poolId], references: [id])
   workerId  String
-  worker    User     @relation("AssignedWorker", fields: [workerId], references: [id])
+  worker    User    @relation("AssignedWorker", fields: [workerId], references: [id])
   serviceId String
-  service   Service  @relation(fields: [serviceId], references: [id])
+  service   Service @relation(fields: [serviceId], references: [id])
 
   date        DateTime
   startTime   DateTime
@@ -291,13 +343,13 @@ model Task {
   approvedBy   User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
   flagReason   String?
 
-  extras TaskExtra[]
-  photos Photo[]
-  materials TaskMaterial[]
-  stockMovements StockMovement[]
+  extras           TaskExtra[]
+  photos           Photo[]
+  materials        TaskMaterial[]
+  stockMovements   StockMovement[]
   materialRequests MaterialRequest[]
-  estimate  Estimate? // set if this task originated from an approved estimate
-  bill      Bill? // created once the task is APPROVED (billable)
+  estimate         Estimate? // set if this task originated from an approved estimate
+  bill             Bill? // created once the task is APPROVED (billable)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -306,12 +358,12 @@ model Task {
 // A bill for a finished (APPROVED) job. Amount snapshots the service price +
 // extras + materials at approval time. Paid in cash, check, or online.
 model Bill {
-  id     String @id @default(cuid())
+  id        String         @id @default(cuid())
   // Sequential, human-readable document number for the invoice. Separate from
   // the cuid so customers get "INV-000042" rather than an opaque id.
-  invoiceNo Int    @unique @default(autoincrement())
-  taskId    String @unique
-  task      Task   @relation(fields: [taskId], references: [id])
+  invoiceNo Int            @unique @default(autoincrement())
+  taskId    String         @unique
+  task      Task           @relation(fields: [taskId], references: [id])
   amount    Decimal // total owed for the job
   status    PaymentStatus  @default(PENDING)
   method    PaymentMethod? // method of the most recent payment (display convenience)
@@ -344,7 +396,7 @@ model PaymentReversal {
 // One money-in event against a bill. A bill can take several (partial)
 // payments, so the outstanding balance is amount - sum(payments.amount).
 model Payment {
-  id String @id @default(cuid())
+  id             String        @id @default(cuid())
   // Sequential document number for the receipt issued for this payment.
   receiptNo      Int           @unique @default(autoincrement())
   billId         String
@@ -401,8 +453,8 @@ model Material {
   reorderThreshold Decimal // alert when quantityOnHand <= this
   active           Boolean @default(true)
 
-  taskMaterials  TaskMaterial[]
-  stockMovements StockMovement[]
+  taskMaterials    TaskMaterial[]
+  stockMovements   StockMovement[]
   materialRequests MaterialRequest[]
 }
 
@@ -411,21 +463,21 @@ model Material {
 // Approving a request does NOT change quantityOnHand; that only happens
 // through an actual RESTOCK StockMovement once the material is received.
 model MaterialRequest {
-  id                String                 @id @default(cuid())
+  id                String                @id @default(cuid())
   workerId          String
-  worker            User                   @relation("RequestedBy", fields: [workerId], references: [id])
+  worker            User                  @relation("RequestedBy", fields: [workerId], references: [id])
   materialId        String?
-  material          Material?              @relation(fields: [materialId], references: [id])
+  material          Material?             @relation(fields: [materialId], references: [id])
   description       String? // free text, used when it's not in the catalog yet
   quantityRequested Decimal
   taskId            String?
-  task              Task?                  @relation(fields: [taskId], references: [id])
-  urgent            Boolean                @default(false) // blocking the current job vs. general restock
-  status            MaterialRequestStatus  @default(PENDING)
+  task              Task?                 @relation(fields: [taskId], references: [id])
+  urgent            Boolean               @default(false) // blocking the current job vs. general restock
+  status            MaterialRequestStatus @default(PENDING)
   respondedById     String?
-  respondedBy       User?                  @relation("RespondedBy", fields: [respondedById], references: [id])
+  respondedBy       User?                 @relation("RespondedBy", fields: [respondedById], references: [id])
   responseNote      String?
-  createdAt         DateTime               @default(now())
+  createdAt         DateTime              @default(now())
   respondedAt       DateTime?
 }
 
@@ -506,13 +558,12 @@ model EstimateLineItem {
 // are snapshotted from TaxRate at the time it's added, so a later rate
 // change doesn't rewrite a signed estimate's numbers.
 model EstimateTax {
-  id         String   @id @default(cuid())
-  estimateId String
-  estimate   Estimate @relation(fields: [estimateId], references: [id])
-  taxRateId  String?
-  taxRate    TaxRate? @relation(fields: [taxRateId], references: [id])
-  name       String // snapshot, e.g. "State Sales Tax"
+  id          String   @id @default(cuid())
+  estimateId  String
+  estimate    Estimate @relation(fields: [estimateId], references: [id])
+  taxRateId   String?
+  taxRate     TaxRate? @relation(fields: [taxRateId], references: [id])
+  name        String // snapshot, e.g. "State Sales Tax"
   ratePercent Decimal // snapshot, e.g. 6.5
-  amount     Decimal // calculated: subtotal (or taxable portion) * ratePercent
+  amount      Decimal // calculated: subtotal (or taxable portion) * ratePercent
 }
-

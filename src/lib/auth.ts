@@ -1,21 +1,13 @@
 import { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
 import { prisma } from "./prisma";
 import {
   ABSOLUTE_MAX_AGE_MS,
   SESSION_MAX_AGE_S,
   SESSION_REFRESH_S,
 } from "./authConfig";
-import {
-  clearFailures,
-  clearSourceFailures,
-  clientIp,
-  isLockedOut,
-  isSourceBlocked,
-  recordFailure,
-  recordSourceFailure,
-} from "./loginThrottle";
+import { clientIp } from "./loginThrottle";
+import { verifyCredentials } from "@/server/services/auth";
 
 // Re-exported for the callers that already import the policy from here.
 export { MAX_LOGIN_ATTEMPTS, LOCKOUT_SECONDS } from "./loginThrottle";
@@ -48,32 +40,18 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
-        const email = credentials.email.trim().toLowerCase();
-        const ip = clientIp(req?.headers ?? {});
 
-        // Throttle first, and by the address typed rather than by account.
-        // Checking the user before the lock would let response timing separate
-        // "no such address" from "locked out".
-        if (await isLockedOut(email)) return null;
-        // The per-account lock can't see a spray — one password against forty
-        // addresses leaves every account on a single failure. This can.
-        if (await isSourceBlocked(ip)) return null;
+        // The check itself — throttles, bcrypt, and the deliberate
+        // indistinguishability of "no such address" from "wrong password" —
+        // lives in the auth service, because POST /api/v1/auth/login has to
+        // behave identically and a second copy would not stay that way.
+        const user = await verifyCredentials({
+          email: credentials.email,
+          password: credentials.password,
+          ip: clientIp(req?.headers ?? {}),
+        });
+        if (!user) return null;
 
-        const fail = async () => {
-          await Promise.all([recordFailure(email), recordSourceFailure(ip)]);
-          return null;
-        };
-
-        const user = await prisma.user.findUnique({ where: { email } });
-
-        // Unknown address, disabled account and wrong password all take the
-        // same branch: one strike, one null. Nothing distinguishes them.
-        if (!user?.active) return fail();
-        if (!(await bcrypt.compare(credentials.password, user.passwordHash))) {
-          return fail();
-        }
-
-        await Promise.all([clearFailures(email), clearSourceFailures(ip)]);
         return { id: user.id, name: user.name, email: user.email, role: user.role };
       },
     }),

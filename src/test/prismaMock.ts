@@ -36,6 +36,8 @@ const MODELS = [
   "estimateTax",
   "loginAttempt",
   "loginSource",
+  "refreshToken",
+  "apiRateLimit",
   "notification",
 ] as const;
 
