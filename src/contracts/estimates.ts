@@ -1,10 +1,13 @@
 import { z } from "zod";
 import {
   choice,
+  dateOnly,
   nonNegativeNumber,
   optionalEmail,
   optionalText,
+  positiveInt,
   positiveNumber,
+  timeOnly,
 } from "./primitives";
 
 /**
@@ -72,6 +75,24 @@ export const signEstimateSchema = z.object({
   signatureData: z.string().min(1, "Capture a signature first"),
 });
 export type SignEstimateInput = z.input<typeof signEstimateSchema>;
+
+/**
+ * Turn a signed estimate into a scheduled job. The price defaults to the
+ * signed total in the form, but the admin can change it (e.g. a one-off repair
+ * quoted as several visits).
+ */
+export const scheduleEstimateSchema = z.object({
+  estimateId: z.string().min(1, "Missing estimate"),
+  poolId: z.string().min(1, "Pick a pool"),
+  workerId: z.string().min(1, "Pick a worker"),
+  serviceId: z.string().min(1, "Pick a service"),
+  date: dateOnly("Pick a date"),
+  time: timeOnly("Pick a start time"),
+  durationMin: positiveInt("Duration must be positive"),
+  price: nonNegativeNumber("Price can't be negative"),
+  notes: optionalText,
+});
+export type ScheduleEstimateInput = z.input<typeof scheduleEstimateSchema>;
 
 export const declineEstimateSchema = z.object({
   estimateId: z.string().min(1, "Missing estimate"),

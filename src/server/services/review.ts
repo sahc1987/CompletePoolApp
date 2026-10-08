@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { createBillForTask } from "@/lib/billing";
+import { notifyUser } from "@/lib/notify";
 import { assertRole, type Actor } from "@/server/actor";
 import {
   badState,
@@ -26,7 +27,10 @@ export async function approveTask(
   if (!parsed.success) return invalid(parsed.error.errors[0].message);
   const { taskId } = parsed.data;
 
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: { client: { select: { name: true } } },
+  });
   if (!task) return notFound("Task not found.");
   if (task.status !== "SUBMITTED") {
     return badState("This task is no longer awaiting review.");
@@ -44,6 +48,9 @@ export async function approveTask(
   });
   // A finished job is billable — generate its bill (pending payment).
   await createBillForTask(taskId);
+  await notifyUser(task.workerId, `${task.client.name}'s job was approved.`, {
+    link: "/worker",
+  });
   return ok();
 }
 
@@ -58,7 +65,10 @@ export async function flagTask(
   if (!parsed.success) return invalid(parsed.error.errors[0].message);
   const { taskId, reason } = parsed.data;
 
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: { client: { select: { name: true } } },
+  });
   if (!task || task.status !== "SUBMITTED") {
     return badState("This task is no longer awaiting review.");
   }
@@ -70,5 +80,11 @@ export async function flagTask(
     where: { id: taskId },
     data: { status: "FLAGGED", flagReason: reason },
   });
+  // The worker is the one who has to act on it.
+  await notifyUser(
+    task.workerId,
+    `${task.client.name}'s job was sent back for rework: ${reason}`,
+    { link: "/worker" }
+  );
   return ok();
 }

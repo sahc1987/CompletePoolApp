@@ -34,7 +34,7 @@ const form = (entries: Record<string, string>) => {
 const seedTask = (over: Record<string, unknown> = {}) => {
   prismaMock.task.findUnique.mockResolvedValue({
     id: "t1",
-    status: "IN_PROGRESS",
+    status: "SUBMITTED",
     submittedAt: null,
     client: { name: "Blue Lagoon" },
     ...over,
@@ -70,6 +70,25 @@ describe("finishTask", () => {
     seedTask({ status: "CANCELLED" });
     const res = await finishTask(null, form({ taskId: "t1" }));
     expect(res).toEqual({ error: "This job was cancelled." });
+  });
+
+  it("asks for confirmation before finishing a job the worker never submitted", async () => {
+    seedTask({ status: "IN_PROGRESS" });
+    const res = await finishTask(null, form({ taskId: "t1" }));
+    expect(res).toEqual({
+      error:
+        "The worker hasn't submitted this job yet. Confirm that you want to finish it anyway.",
+    });
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(createBillForTask).not.toHaveBeenCalled();
+  });
+
+  it("finishes an unsubmitted job once the admin confirms", async () => {
+    seedTask({ status: "SCHEDULED" });
+    await expect(
+      finishTask(null, form({ taskId: "t1", override: "on" }))
+    ).resolves.toEqual({ ok: true });
+    expect(createBillForTask).toHaveBeenCalledWith("t1");
   });
 
   it("rejects a missing task", async () => {

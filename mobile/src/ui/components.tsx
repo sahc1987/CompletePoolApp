@@ -234,6 +234,28 @@ export function Loading({ label }: { label?: string }) {
   );
 }
 
+/** One option in a wrapping row of choices — a material, a client, a job. */
+export function Chip({
+  label,
+  selected,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[s.chip, selected && s.chipOn]}
+    >
+      <Text style={[s.chipText, selected && { color: color.white }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 /** A label/value pair, used down the detail screens. */
 export function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
@@ -323,6 +345,17 @@ const s = StyleSheet.create({
     gap: space.lg,
     paddingVertical: space.sm,
   },
+  chip: {
+    minHeight: 40,
+    justifyContent: "center",
+    paddingHorizontal: space.md,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.field,
+    backgroundColor: color.white,
+  },
+  chipOn: { backgroundColor: color.teal700, borderColor: color.teal700 },
+  chipText: { ...type.small, color: color.ink, fontWeight: "600" },
   rowLabel: { ...type.small, color: color.muted },
   rowValue: { ...type.bodyStrong, color: color.ink, textAlign: "right" },
 });

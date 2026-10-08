@@ -3,6 +3,7 @@ import {
   hasLoggedMaterials,
   recordTaskMaterials,
 } from "@/lib/materials";
+import { notifyRoles } from "@/lib/notify";
 import { assertRole, type Actor } from "@/server/actor";
 import {
   badState,
@@ -28,7 +29,10 @@ import {
  */
 async function loadOwnTask(taskId: string, workerId: string) {
   if (!taskId) return null;
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: { client: { select: { name: true } } },
+  });
   if (!task || task.workerId !== workerId) return null;
   return task;
 }
@@ -91,6 +95,14 @@ export async function submitTask(
     });
   });
 
+  // The review queue is where an admin acts on it; without this a submitted
+  // job sits there until someone happens to look.
+  const again = task.flagReason ? " (rework)" : "";
+  await notifyRoles(
+    ["ADMIN"],
+    `${actor.name ?? "A worker"} submitted ${task.client.name}'s job for review${again}.`,
+    { link: "/review" }
+  );
   return ok();
 }
 
@@ -125,6 +137,16 @@ export async function createMaterialRequest(
       taskId: d.taskId || null,
       urgent: d.urgent,
     },
+    include: { material: { select: { name: true, unit: true } } },
   });
+
+  const what = created.material
+    ? `${d.quantityRequested} ${created.material.unit} of ${created.material.name}`
+    : `${d.quantityRequested} × ${d.description}`;
+  await notifyRoles(
+    ["ADMIN"],
+    `${d.urgent ? "URGENT: " : ""}${actor.name ?? "A worker"} requested ${what}.`,
+    { link: "/materials" }
+  );
   return ok({ id: created.id });
 }

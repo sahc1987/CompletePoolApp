@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/guard";
 import { parseMaterialUsage } from "@/lib/materials";
-import { opt, str } from "@/lib/formData";
+import { checkbox, opt, str } from "@/lib/formData";
 import * as billingService from "@/server/services/billing";
 import * as scheduling from "@/server/services/scheduling";
 import type { ActionState } from "@/lib/actions";
@@ -41,10 +41,45 @@ export async function editTask(
     time: str(formData, "time"),
     durationMin: str(formData, "durationMin"),
     price: str(formData, "price"),
+    applyToSeries: checkbox(formData, "applyToSeries"),
   });
   if (!res.ok) return { error: res.error };
 
   revalidatePath("/calendar");
+  revalidatePath("/worker");
+  return { ok: true };
+}
+
+export async function cancelTask(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const res = await scheduling.cancelTask(actor, {
+    taskId: str(formData, "taskId"),
+  });
+  if (!res.ok) return { error: res.error };
+
+  revalidatePath("/calendar");
+  revalidatePath("/worker");
+  revalidatePath("/review");
+  // Material a cancelled job used goes back into stock.
+  revalidatePath("/materials");
+  return { ok: true };
+}
+
+export async function endSeries(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const res = await scheduling.endSeries(actor, {
+    taskId: str(formData, "taskId"),
+  });
+  if (!res.ok) return { error: res.error };
+
+  revalidatePath("/calendar");
+  revalidatePath("/worker");
   return { ok: true };
 }
 
@@ -56,6 +91,7 @@ export async function finishTask(
   const res = await scheduling.finishTask(actor, {
     taskId: str(formData, "taskId"),
     usage: parseMaterialUsage(formData),
+    override: checkbox(formData, "override"),
   });
   if (!res.ok) return { error: res.error };
 

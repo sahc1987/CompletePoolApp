@@ -89,6 +89,8 @@ export type WorkerTaskRow = {
 
 export type ReviewTaskRow = WorkerTaskRow & {
   workerName: string;
+  /** Photos aren't required to submit, so the reviewer is shown when there are none. */
+  photoCount: number;
   extras: TaskExtraRow[];
   materials: TaskMaterialRow[];
 };
@@ -164,6 +166,7 @@ export async function listReviewQueue(
       materials: {
         include: { material: { select: { name: true, unit: true } } },
       },
+      _count: { select: { photos: true } },
     },
     orderBy: { submittedAt: "asc" },
   });
@@ -184,6 +187,7 @@ export async function listReviewQueue(
       poolAddress: t.pool.address,
       serviceName: t.service.name,
       workerName: t.worker.name,
+      photoCount: t._count?.photos ?? 0,
       extras: t.extras.map((e) => ({
         id: e.id,
         name: e.extraService.name,
@@ -214,6 +218,8 @@ export type CalendarTaskRow = {
   start: string;
   end: string;
   status: TaskStatusValue;
+  /** Part of a repeating series — the editor offers "apply to later jobs" and "end series". */
+  recurring: boolean;
   /**
    * Quantities are safe for anyone who can see the job; the prices they were
    * logged at are not, so they stay out of the payload.
@@ -284,6 +290,7 @@ export async function listCalendarTasks(
         start: requiredIso(start),
         end: requiredIso(end),
         status: t.status as TaskStatusValue,
+        recurring: t.recurrenceRuleId !== null,
         materialsUsed: t.materials.map((m) => ({
           name: m.material.name,
           unit: m.material.unit,

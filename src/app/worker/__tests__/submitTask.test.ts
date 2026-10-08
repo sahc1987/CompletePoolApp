@@ -7,6 +7,11 @@ jest.mock("@/lib/prisma", () => ({
   prisma: require("@/test/prismaMock").createPrismaMock(),
 }));
 jest.mock("next/cache", () => ({ revalidatePath: jest.fn() }));
+jest.mock("@/lib/notify", () => ({
+  notifyAll: jest.fn(),
+  notifyUser: jest.fn(),
+  notifyRoles: jest.fn(),
+}));
 jest.mock("@/lib/guard", () => ({
   requireRole: jest.fn().mockResolvedValue({ id: "w1", role: "WORKER" }),
 }));
@@ -26,6 +31,7 @@ const seedTask = (over: Record<string, unknown> = {}) => {
     id: "t1",
     workerId: "w1",
     status: "IN_PROGRESS",
+    client: { name: "Casa Verde" },
     ...over,
   });
 };

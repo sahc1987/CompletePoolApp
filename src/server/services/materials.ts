@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { notifyUser } from "@/lib/notify";
 import { assertRole, type Actor } from "@/server/actor";
 import {
   badState,
@@ -108,6 +109,7 @@ export async function respondMaterialRequest(
 
   const req = await prisma.materialRequest.findUnique({
     where: { id: requestId },
+    include: { material: { select: { name: true } } },
   });
   if (!req || req.status !== "PENDING") {
     return badState("This request has already been handled.");
@@ -122,5 +124,13 @@ export async function respondMaterialRequest(
       respondedAt: new Date(),
     },
   });
+
+  const what = req.material?.name ?? req.description ?? "material";
+  const verdict = decision === "APPROVED" ? "approved" : "denied";
+  await notifyUser(
+    req.workerId,
+    `Your request for ${what} was ${verdict}${note ? `: ${note}` : "."}`,
+    { link: "/worker" }
+  );
   return ok();
 }

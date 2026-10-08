@@ -3,9 +3,12 @@
 The field app for CompletePoolApp, built with Expo (SDK 57) and expo-router.
 
 This release covers the worker's day: sign in, see today's jobs, start one,
-log the material it used, and submit it for review. Scheduling, clients,
-billing and estimates are still web-only — an admin or owner who signs in is
-told so rather than dropped into an empty app.
+log the material it used, and submit it for review. Workers can also request
+materials, and build estimates on site — line items, taxes, presenting, and
+the customer's signature on the phone (`react-native-signature-canvas`, which
+draws in a `react-native-webview` and returns the same PNG data URL the web pad
+does). Scheduling, clients and billing are still web-only — an admin or owner
+who signs in is told so rather than dropped into an empty app.
 
 ## Running it
 

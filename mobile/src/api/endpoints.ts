@@ -1,5 +1,19 @@
-import type { MaterialUsageInput } from "@contracts/worker";
-import type { RoleValue, TaskStatusValue } from "@contracts/enums";
+import type {
+  CreateMaterialRequestInput,
+  MaterialUsageInput,
+} from "@contracts/worker";
+import type {
+  AddLineItemInput,
+  CreateEstimateInput,
+  DeclineEstimateInput,
+  SignEstimateInput,
+} from "@contracts/estimates";
+import type {
+  EstimateStatusValue,
+  MaterialRequestStatusValue,
+  RoleValue,
+  TaskStatusValue,
+} from "@contracts/enums";
 import { api } from "./client";
 
 /**
@@ -96,6 +110,111 @@ export const tasks = {
 export const materials = {
   /** Active catalog only — what can go on new work. Names and units, no prices. */
   usable: () => api.get<MaterialOption[]>("/materials"),
+};
+
+export type MaterialRequest = {
+  id: string;
+  materialId: string | null;
+  materialName: string | null;
+  materialUnit: string | null;
+  description: string | null;
+  quantityRequested: number;
+  urgent: boolean;
+  status: MaterialRequestStatusValue;
+  responseNote: string | null;
+  createdAt: string;
+  respondedAt: string | null;
+  taskId: string | null;
+};
+
+export const materialRequests = {
+  mine: () => api.get<MaterialRequest[]>("/material-requests"),
+  /** Never changes stock — an admin approves, then restocks when it arrives. */
+  create: (input: CreateMaterialRequestInput) =>
+    api.post<{ id: string }>("/material-requests", input),
+};
+
+export type EstimateListRow = {
+  id: string;
+  status: EstimateStatusValue;
+  clientName: string;
+  createdByName: string;
+  total: number | null;
+  createdAt: string;
+  presentedAt: string | null;
+  signedAt: string | null;
+  validUntil: string | null;
+};
+
+export type EstimateDetail = {
+  id: string;
+  status: EstimateStatusValue;
+  clientId: string;
+  clientName: string;
+  poolId: string | null;
+  poolAddress: string | null;
+  createdByName: string;
+  notes: string | null;
+  validUntil: string | null;
+  createdAt: string;
+  presentedAt: string | null;
+  signedByName: string | null;
+  signatureData: string | null;
+  signedAt: string | null;
+  declineReason: string | null;
+  respondedAt: string | null;
+  convertedTaskId: string | null;
+  lineItems: {
+    id: string;
+    description: string;
+    quantity: number;
+    unitPrice: number;
+    amount: number;
+  }[];
+  taxes: {
+    id: string;
+    taxRateId: string | null;
+    name: string;
+    ratePercent: number;
+    amount: number;
+  }[];
+  subtotal: number | null;
+  taxTotal: number | null;
+  total: number | null;
+  isDraft: boolean;
+  isPresented: boolean;
+  availableTaxRates: { id: string; name: string; rate: number }[];
+};
+
+export type EstimateCatalog = {
+  clients: { id: string; name: string; pools: { id: string; address: string }[] }[];
+  lineItems: { name: string; price: number; kind: "Service" | "Extra" | "Material" }[];
+};
+
+/** Fields the line-item, sign and decline calls send, minus the id in the path. */
+type WithoutEstimate<T> = Omit<T, "estimateId">;
+
+export const estimates = {
+  list: () => api.get<EstimateListRow[]>("/estimates"),
+  catalog: () => api.get<EstimateCatalog>("/estimates/catalog"),
+  get: (id: string) => api.get<EstimateDetail>(`/estimates/${id}`),
+  create: (input: CreateEstimateInput) =>
+    api.post<{ id: string; createdClient: boolean }>("/estimates", input),
+  remove: (id: string) => api.del<void>(`/estimates/${id}`),
+  addLine: (id: string, line: WithoutEstimate<AddLineItemInput>) =>
+    api.post<{ id: string }>(`/estimates/${id}/line-items`, line),
+  removeLine: (id: string, lineId: string) =>
+    api.del<void>(`/estimates/${id}/line-items/${lineId}`),
+  addTax: (id: string, taxRateId: string) =>
+    api.post<void>(`/estimates/${id}/taxes`, { taxRateId }),
+  removeTax: (id: string, taxId: string) =>
+    api.del<void>(`/estimates/${id}/taxes/${taxId}`),
+  present: (id: string) => api.post<void>(`/estimates/${id}/present`),
+  backToDraft: (id: string) => api.post<void>(`/estimates/${id}/draft`),
+  sign: (id: string, body: WithoutEstimate<SignEstimateInput>) =>
+    api.post<void>(`/estimates/${id}/sign`, body),
+  decline: (id: string, body: WithoutEstimate<DeclineEstimateInput>) =>
+    api.post<void>(`/estimates/${id}/decline`, body),
 };
 
 export const notifications = {

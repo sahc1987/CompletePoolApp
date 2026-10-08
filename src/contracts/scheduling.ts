@@ -57,6 +57,12 @@ export const editTaskSchema = z.object({
   time: timeOnly("Pick a start time"),
   durationMin: positiveInt("Duration must be positive"),
   price: nonNegativeNumber("Price can't be negative"),
+  /**
+   * Recurring jobs only: also apply the worker, service, start time, duration
+   * and price to every later scheduled job in the series. Each keeps its own
+   * date — only this job moves to the date given above.
+   */
+  applyToSeries: z.boolean().default(false),
 });
 export type EditTaskInput = z.input<typeof editTaskSchema>;
 
@@ -71,5 +77,22 @@ export const finishTaskSchema = z.object({
       })
     )
     .default([]),
+  /**
+   * Finishing skips the worker's submit and the review. For a job that was
+   * never submitted that has to be a deliberate choice, not a stray click.
+   */
+  override: z.boolean().default(false),
 });
 export type FinishTaskInput = z.input<typeof finishTaskSchema>;
+
+export const taskIdSchema = z.object({
+  taskId: z.string().min(1, "Missing task"),
+});
+
+/** Cancel one job. Material it already used goes back on the shelf. */
+export const cancelTaskSchema = taskIdSchema;
+export type CancelTaskInput = z.input<typeof cancelTaskSchema>;
+
+/** Make this job the last in its recurring series. */
+export const endSeriesSchema = taskIdSchema;
+export type EndSeriesInput = z.input<typeof endSeriesSchema>;

@@ -114,6 +114,30 @@ export async function signEstimate(
   return { ok: true };
 }
 
+export async function scheduleEstimate(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const estimateId = str(formData, "estimateId");
+  const res = await estimatesService.scheduleEstimate(actor, {
+    estimateId,
+    poolId: str(formData, "poolId"),
+    workerId: str(formData, "workerId"),
+    serviceId: str(formData, "serviceId"),
+    date: str(formData, "date"),
+    time: str(formData, "time"),
+    durationMin: str(formData, "durationMin"),
+    price: str(formData, "price"),
+  });
+  if (!res.ok) return { error: res.error };
+
+  revalidatePath(`/estimates/${estimateId}`);
+  revalidatePath("/calendar");
+  revalidatePath("/worker");
+  return { ok: true };
+}
+
 export async function declineEstimate(
   _prev: ActionState,
   formData: FormData

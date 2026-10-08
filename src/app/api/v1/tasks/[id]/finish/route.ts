@@ -11,8 +11,9 @@ export const dynamic = "force-dynamic";
  * An admin closing out a job themselves, bypassing the worker-submit then
  * review path. Marks it approved and raises the bill.
  *
- * Body: { usage } — materials logged on the way out. If the worker already
- * submitted the job, its usage is on record and this will not count it again.
+ * Body: { usage, override } — materials logged on the way out. If the worker
+ * already submitted the job, its usage is on record and this will not count it
+ * again. A job that was never submitted needs `override: true`, or it's 422.
  */
 export const POST = handle(async (req, { params }) => {
   const auth = await requireApi(req, { roles: ["ADMIN"], fresh: true });
@@ -24,6 +25,7 @@ export const POST = handle(async (req, { params }) => {
   const result = await finishTask(auth.actor, {
     taskId: params.id,
     usage: body.data.usage,
+    override: body.data.override,
   });
   if (!result.ok) return serviceError(result);
   return apiNoContent();

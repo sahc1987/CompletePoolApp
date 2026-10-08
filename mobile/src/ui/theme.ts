@@ -100,7 +100,21 @@ export const statusTone: Record<
   APPROVED: { label: "Approved", fg: color.good, bg: "#dcf0e3" },
   FLAGGED: { label: "Needs rework", fg: color.danger, bg: "#fae3e3" },
   CANCELLED: { label: "Cancelled", fg: color.faint, bg: "#e9edf4" },
+  // Estimates
+  DRAFT: { label: "Draft", fg: color.pending, bg: "#e2e8f0" },
+  PRESENTED: { label: "Presented", fg: color.aqua, bg: "#d7eef3" },
+  DECLINED: { label: "Declined", fg: color.danger, bg: "#fae3e3" },
+  // Material requests
+  PENDING: { label: "Pending", fg: color.pending, bg: "#e2e8f0" },
+  DENIED: { label: "Denied", fg: color.danger, bg: "#fae3e3" },
 };
+
+/** Dollars for display. Amounts arrive from the API as plain numbers. */
+export function usd(n: number | null | undefined): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(
+    n ?? 0
+  );
+}
 
 /**
  * The smallest square a wet thumb can reliably hit. Apple asks for 44pt and

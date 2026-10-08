@@ -56,8 +56,19 @@ export default async function ReviewPage() {
             <div key={t.id} className={card}>
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <div className="font-semibold text-ink">
+                  <div className="flex flex-wrap items-center gap-2 font-semibold text-ink">
                     {t.clientName} — {t.serviceName}
+                    {/* Photos are optional to submit; make a missing set obvious
+                        so the reviewer can flag it if they wanted them. */}
+                    {t.photoCount === 0 ? (
+                      <span className="rounded-full bg-pending/10 px-2 py-0.5 text-xs font-semibold text-pending">
+                        No photos
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-good/10 px-2 py-0.5 text-xs font-semibold text-good">
+                        {t.photoCount} photo{t.photoCount === 1 ? "" : "s"}
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-muted">{t.poolAddress}</div>
                   <div className="mt-1 text-sm text-muted">

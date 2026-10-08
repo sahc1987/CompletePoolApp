@@ -94,3 +94,48 @@ export async function recordTaskMaterials(
     });
   }
 }
+
+/**
+ * Put a cancelled job's material back on the shelf, inside an open
+ * transaction: one REVERSAL movement per material, equal and opposite to what
+ * its USAGE movements took.
+ *
+ * Only cancelling reverses usage. FLAGGED never does — the material was
+ * physically used, only the pricing was wrong. The TaskMaterial rows stay as
+ * the record of what the job consumed before it was called off.
+ */
+export async function reverseTaskMaterials(
+  tx: Prisma.TransactionClient,
+  taskId: string
+): Promise<void> {
+  const usage = await tx.stockMovement.findMany({
+    where: { taskId, type: "USAGE" },
+  });
+
+  const byMaterial = new Map<string, number>();
+  for (const m of usage) {
+    byMaterial.set(
+      m.materialId,
+      (byMaterial.get(m.materialId) ?? 0) + Number(m.quantity)
+    );
+  }
+
+  for (const [materialId, quantity] of byMaterial) {
+    // USAGE is stored negative, so giving it back is its absolute value.
+    const back = Math.abs(quantity);
+    if (back === 0) continue;
+    await tx.material.update({
+      where: { id: materialId },
+      data: { quantityOnHand: { increment: back } },
+    });
+    await tx.stockMovement.create({
+      data: {
+        materialId,
+        type: "REVERSAL",
+        quantity: back,
+        taskId,
+        note: "Job cancelled",
+      },
+    });
+  }
+}

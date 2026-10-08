@@ -4,6 +4,7 @@ import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native"
 import { useTasks } from "@/api/useTasks";
 import type { WorkerTask } from "@/api/endpoints";
 import {
+  Button,
   Card,
   Empty,
   ErrorNotice,
@@ -116,6 +117,13 @@ export default function MyDay() {
           ))}
         </View>
       ))}
+
+      {/* Occasional, so it sits below the day rather than competing with it. */}
+      <Button
+        title="Request materials"
+        variant="secondary"
+        onPress={() => router.push("/(worker)/materials")}
+      />
     </Screen>
   );
 }

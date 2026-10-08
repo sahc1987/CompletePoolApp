@@ -37,6 +37,8 @@ export type CalendarTask = {
   start: string;
   end: string;
   status: TaskStatus;
+  /** Part of a repeating series. */
+  recurring: boolean;
   /** Material already logged against the job, if it has been closed out. */
   materialsUsed: TaskMaterialUsed[];
   // Null until the job is finished (or for non-admins, who don't see money).

@@ -9,7 +9,10 @@ import ActionForm from "@/components/ActionForm";
 import DeleteButton from "@/components/DeleteButton";
 import { card, selectClass } from "@/components/styles";
 import { money } from "@/lib/serialize";
+import { getSchedulingCatalog } from "@/server/services/catalogReads";
+import { minToHHMM } from "@/lib/schedule";
 import LineItemForm from "../LineItemForm";
+import ScheduleEstimateForm from "../ScheduleEstimateForm";
 import SignForm from "../SignForm";
 import DeclineForm from "../DeclineForm";
 import EstimatePdf, { type EstimatePdfData } from "../EstimatePdf";
@@ -59,6 +62,14 @@ export default async function EstimateDetailPage({
     ? await getLineItemCatalog(session.user)
     : null;
   const catalog = catalogResult?.ok ? catalogResult.data : [];
+
+  // A signed estimate that isn't on the calendar yet: the admin schedules it.
+  const canSchedule =
+    session.user.role === "ADMIN" &&
+    estimate.status === "APPROVED" &&
+    !estimate.convertedTaskId;
+  const scheduling = canSchedule ? await getSchedulingCatalog(session.user) : null;
+  const schedulingCatalog = scheduling?.ok ? scheduling.data : null;
 
   const pdfData: EstimatePdfData = {
     number: estimate.id.slice(-6).toUpperCase(),
@@ -258,6 +269,41 @@ export default async function EstimateDetailPage({
                   className="mt-3 h-20 rounded border border-line bg-white"
                 />
               )}
+            </section>
+          )}
+
+          {estimate.status === "APPROVED" && estimate.convertedTaskId && (
+            <section className={card}>
+              <h2 className="mb-2 text-lg font-semibold text-ink">Scheduled</h2>
+              <p className="text-sm text-muted">
+                This estimate is on the{" "}
+                <Link href="/calendar" className="font-semibold text-navy-700 hover:underline">
+                  calendar
+                </Link>
+                .
+              </p>
+            </section>
+          )}
+
+          {schedulingCatalog && (
+            <section className={card}>
+              <h2 className="mb-1 text-lg font-semibold text-ink">Schedule the job</h2>
+              <p className="mb-4 text-sm text-muted">
+                Signed — put it on the calendar so a worker can do it.
+              </p>
+              <ScheduleEstimateForm
+                estimateId={estimate.id}
+                total={estimate.total ?? 0}
+                defaultPoolId={estimate.poolId}
+                pools={
+                  schedulingCatalog.clients.find((c) => c.id === estimate.clientId)
+                    ?.pools ?? []
+                }
+                workers={schedulingCatalog.workers}
+                services={schedulingCatalog.services}
+                workStart={minToHHMM(schedulingCatalog.hours.startMin)}
+                workEnd={minToHHMM(schedulingCatalog.hours.endMin)}
+              />
             </section>
           )}
 

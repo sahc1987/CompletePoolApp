@@ -12,9 +12,15 @@ import {
   parseZonedDateTime,
   zonedDayOfWeek,
   zonedDayStart,
+  zonedParts,
+  zonedTimeToUtc,
 } from "@/lib/timezone";
 import { createBillForTask } from "@/lib/billing";
-import { hasLoggedMaterials, recordTaskMaterials } from "@/lib/materials";
+import {
+  hasLoggedMaterials,
+  recordTaskMaterials,
+  reverseTaskMaterials,
+} from "@/lib/materials";
 import { assertRole, type Actor } from "@/server/actor";
 import {
   badState,
@@ -25,12 +31,16 @@ import {
   type ServiceResult,
 } from "@/server/result";
 import {
+  cancelTaskSchema,
   createTaskSchema,
   editTaskSchema,
+  endSeriesSchema,
   finishTaskSchema,
   rescheduleTaskSchema,
+  type CancelTaskInput,
   type CreateTaskInput,
   type EditTaskInput,
+  type EndSeriesInput,
   type FinishTaskInput,
   type RescheduleTaskInput,
 } from "@/contracts/scheduling";
@@ -45,6 +55,29 @@ function fmt(d: Date, timeZone: string) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+// The day alone, for notes about a whole series.
+function fmtDay(d: Date, timeZone: string) {
+  return d.toLocaleDateString("en-US", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+/**
+ * A finished job is a billed record: its bill snapshotted the price, and its
+ * photos are the evidence for it. Moving or repricing it afterwards would leave
+ * the invoice disagreeing with the job, so it is closed to edits.
+ */
+function lockedReason(status: string): string | null {
+  if (status === "APPROVED") {
+    return "This job is finished and billed, so it can't be changed.";
+  }
+  if (status === "CANCELLED") return "This job was cancelled.";
+  return null;
 }
 
 const REPEAT_LABEL: Record<string, string> = {
@@ -203,9 +236,11 @@ export async function rescheduleTask(
   // reverts the drag when this returns an error.
   const existing = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { workerId: true },
+    select: { workerId: true, status: true },
   });
   if (!existing) return notFound("Task not found");
+  const locked = lockedReason(existing.status);
+  if (locked) return badState(locked);
 
   const hours = await getWorkHours();
   const hoursError = checkWorkHours(start, minutes, hours);
@@ -269,46 +304,87 @@ export async function editTask(
     },
   });
   if (!before) return notFound("Task not found");
+  const locked = lockedReason(before.status);
+  if (locked) return badState(locked);
+  if (d.applyToSeries && !before.recurrenceRuleId) {
+    return badState("This job isn't part of a repeating series.");
+  }
 
   const hours = await getWorkHours();
-  const startTime = parseZonedDateTime(d.date, d.time, hours.timezone);
+  const tz = hours.timezone;
+  const startTime = parseZonedDateTime(d.date, d.time, tz);
   if (!startTime) return invalid("Pick a valid date and start time");
 
   const hoursError = checkWorkHours(startTime, d.durationMin, hours);
   if (hoursError) return invalid(hoursError);
 
-  // Checked against the worker the job is being saved with, which may differ
-  // from its current one.
-  const clash = await findWorkerConflict({
-    workerId: d.workerId,
-    startTime,
-    durationMin: d.durationMin,
-    excludeTaskId: d.taskId,
-    timezone: hours.timezone,
+  // The rest of the series keeps its own dates and takes the new time of day,
+  // rebuilt from wall-clock parts so a DST change doesn't shift it an hour.
+  // Only jobs nobody has started yet follow along.
+  const [hh, mm] = d.time.split(":").map(Number);
+  const later =
+    d.applyToSeries && before.recurrenceRuleId
+      ? await prisma.task.findMany({
+          where: {
+            recurrenceRuleId: before.recurrenceRuleId,
+            status: "SCHEDULED",
+            startTime: { gt: before.startTime },
+            id: { not: d.taskId },
+          },
+          select: { id: true, startTime: true },
+          orderBy: { startTime: "asc" },
+        })
+      : [];
+  const moves = later.map((t) => {
+    const p = zonedParts(t.startTime, tz);
+    return { id: t.id, startTime: zonedTimeToUtc(p.year, p.month, p.day, hh, mm, tz) };
   });
-  if (clash) {
-    const worker = await prisma.user.findUnique({
-      where: { id: d.workerId },
-      select: { name: true },
+
+  // Every job being saved is checked against the worker it is being saved
+  // with, which may differ from its current one.
+  const targets = [{ id: d.taskId, startTime }, ...moves];
+  for (const target of targets) {
+    const clash = await findWorkerConflict({
+      workerId: d.workerId,
+      startTime: target.startTime,
+      durationMin: d.durationMin,
+      excludeTaskId: target.id,
+      timezone: tz,
     });
-    return conflict(conflictMessage(clash, worker?.name));
+    if (clash) {
+      const worker = await prisma.user.findUnique({
+        where: { id: d.workerId },
+        select: { name: true },
+      });
+      const msg = conflictMessage(clash, worker?.name);
+      return conflict(
+        target.id === d.taskId ? msg : `On ${fmtDay(target.startTime, tz)}: ${msg}`
+      );
+    }
   }
 
-  const updated = await prisma.task.update({
-    where: { id: d.taskId },
-    data: {
-      workerId: d.workerId,
-      serviceId: d.serviceId,
-      startTime,
-      date: zonedDayStart(startTime, hours.timezone),
-      durationMin: d.durationMin,
-      price: d.price,
-    },
-    include: {
-      client: { select: { name: true } },
-      worker: { select: { name: true } },
-      service: { select: { name: true } },
-    },
+  const shared = {
+    workerId: d.workerId,
+    serviceId: d.serviceId,
+    durationMin: d.durationMin,
+    price: d.price,
+  };
+  const updated = await prisma.$transaction(async (tx) => {
+    for (const m of moves) {
+      await tx.task.update({
+        where: { id: m.id },
+        data: { ...shared, startTime: m.startTime, date: zonedDayStart(m.startTime, tz) },
+      });
+    }
+    return tx.task.update({
+      where: { id: d.taskId },
+      data: { ...shared, startTime, date: zonedDayStart(startTime, tz) },
+      include: {
+        client: { select: { name: true } },
+        worker: { select: { name: true } },
+        service: { select: { name: true } },
+      },
+    });
   });
 
   // Describe just what actually changed, for a useful notification.
@@ -320,10 +396,14 @@ export async function editTask(
   if (before.worker.name !== updated.worker.name)
     changes.push(`assigned to ${updated.worker.name}`);
 
+  const series = moves.length
+    ? ` (and ${moves.length} later job${moves.length === 1 ? "" : "s"} in the series)`
+    : "";
+
   if (changes.length > 0) {
     await notifyRoles(
       ["ADMIN", "OWNER"],
-      `${updated.client.name}'s job updated: ${changes.join(", ")}.`,
+      `${updated.client.name}'s job updated${series}: ${changes.join(", ")}.`,
       { link: "/calendar", exceptUserId: actor.id }
     );
 
@@ -332,24 +412,137 @@ export async function editTask(
       // Both sides of a handover need to know their day changed.
       await notifyUser(
         updated.workerId,
-        `New job assigned: ${updated.service.name} for ${updated.client.name} — ${fmt(startTime, hours.timezone)}.`,
+        `New job assigned${series}: ${updated.service.name} for ${updated.client.name} — ${fmt(startTime, hours.timezone)}.`,
         { link: "/worker" }
       );
       await notifyUser(
         before.workerId,
-        `${updated.client.name}'s job on ${fmt(before.startTime, hours.timezone)} was reassigned to ${updated.worker.name} and is off your list.`,
+        `${updated.client.name}'s job on ${fmt(before.startTime, hours.timezone)}${series} was reassigned to ${updated.worker.name} and is off your list.`,
         { link: "/worker" }
       );
     } else {
       await notifyUser(
         updated.workerId,
-        `Your job for ${updated.client.name} was updated: ${changes.join(", ")}.`,
+        `Your job for ${updated.client.name} was updated${series}: ${changes.join(", ")}.`,
         { link: "/worker" }
       );
     }
   }
 
   return ok();
+}
+
+/**
+ * Call off a job that hasn't been finished. Any material its worker already
+ * logged goes back into stock, since the customer won't be billed for it.
+ * A finished job has a bill and can't be cancelled.
+ */
+export async function cancelTask(
+  actor: Actor,
+  input: CancelTaskInput
+): Promise<ServiceResult<void>> {
+  const denied = assertRole(actor, "ADMIN");
+  if (denied) return denied;
+
+  const parsed = cancelTaskSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  const { taskId } = parsed.data;
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: { client: { select: { name: true } } },
+  });
+  if (!task) return notFound("Task not found");
+  if (task.status === "APPROVED") {
+    return badState("A finished job has already been billed and can't be cancelled.");
+  }
+  if (task.status === "CANCELLED") return badState("This job is already cancelled.");
+
+  await prisma.$transaction(async (tx) => {
+    await reverseTaskMaterials(tx, taskId);
+    await tx.task.update({
+      where: { id: taskId },
+      data: { status: "CANCELLED" },
+    });
+  });
+
+  const tz = (await getWorkHours()).timezone;
+  await notifyUser(
+    task.workerId,
+    `${task.client.name}'s job on ${fmt(task.startTime, tz)} was cancelled and is off your list.`,
+    { link: "/worker" }
+  );
+  await notifyRoles(
+    ["ADMIN", "OWNER"],
+    `${task.client.name}'s job on ${fmt(task.startTime, tz)} was cancelled.`,
+    { link: "/calendar", exceptUserId: actor.id }
+  );
+  return ok();
+}
+
+/**
+ * Stop a repeating job after this occurrence: the rule ends on this job's day,
+ * so the cron won't create more, and the later jobs already created that no one
+ * has started are cancelled.
+ */
+export async function endSeries(
+  actor: Actor,
+  input: EndSeriesInput
+): Promise<ServiceResult<{ cancelled: number }>> {
+  const denied = assertRole(actor, "ADMIN");
+  if (denied) return denied;
+
+  const parsed = endSeriesSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  const { taskId } = parsed.data;
+
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: { client: { select: { name: true } } },
+  });
+  if (!task) return notFound("Task not found");
+  if (!task.recurrenceRuleId) {
+    return badState("This job isn't part of a repeating series.");
+  }
+
+  const later = await prisma.task.findMany({
+    where: {
+      recurrenceRuleId: task.recurrenceRuleId,
+      status: "SCHEDULED",
+      startTime: { gt: task.startTime },
+    },
+    select: { id: true, workerId: true },
+  });
+
+  await prisma.$transaction([
+    prisma.recurrenceRule.update({
+      where: { id: task.recurrenceRuleId },
+      data: { endDate: task.date },
+    }),
+    prisma.task.updateMany({
+      where: { id: { in: later.map((t) => t.id) } },
+      data: { status: "CANCELLED" },
+    }),
+  ]);
+
+  const tz = (await getWorkHours()).timezone;
+  const last = fmtDay(task.startTime, tz);
+  const perWorker = new Map<string, number>();
+  for (const t of later) perWorker.set(t.workerId, (perWorker.get(t.workerId) ?? 0) + 1);
+  for (const [workerId, count] of perWorker) {
+    await notifyUser(
+      workerId,
+      `${task.client.name}'s repeating job now ends on ${last}. ${count} upcoming job${count === 1 ? " was" : "s were"} taken off your list.`,
+      { link: "/worker" }
+    );
+  }
+  await notifyRoles(
+    ["ADMIN", "OWNER"],
+    `${task.client.name}'s repeating job now ends on ${last}.`,
+    { link: "/calendar", exceptUserId: actor.id }
+  );
+
+  return ok({ cancelled: later.length });
 }
 
 /**
@@ -366,7 +559,7 @@ export async function finishTask(
 
   const parsed = finishTaskSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.errors[0].message);
-  const { taskId, usage } = parsed.data;
+  const { taskId, usage, override } = parsed.data;
 
   const task = await prisma.task.findUnique({
     where: { id: taskId },
@@ -375,6 +568,11 @@ export async function finishTask(
   if (!task) return notFound("Task not found");
   if (task.status === "APPROVED") return badState("This job is already finished.");
   if (task.status === "CANCELLED") return badState("This job was cancelled.");
+  if (task.status !== "SUBMITTED" && !override) {
+    return badState(
+      "The worker hasn't submitted this job yet. Confirm that you want to finish it anyway."
+    );
+  }
 
   // A job that already went through the worker's submit has its usage counted;
   // entering it again here would drain stock twice and double-bill the customer.

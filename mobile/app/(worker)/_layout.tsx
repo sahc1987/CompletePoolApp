@@ -36,9 +36,14 @@ export default function WorkerLayout() {
       }}
     >
       <Tabs.Screen name="index" options={{ title: "My day" }} />
+      <Tabs.Screen name="estimates/index" options={{ title: "Estimates" }} />
       <Tabs.Screen name="account" options={{ title: "Account" }} />
       {/* Detail screens push over the tabs rather than appearing in the bar. */}
       <Tabs.Screen name="task/[id]" options={{ href: null, title: "Job" }} />
+      <Tabs.Screen name="materials" options={{ href: null, title: "Request materials" }} />
+      <Tabs.Screen name="estimates/new" options={{ href: null, title: "New estimate" }} />
+      <Tabs.Screen name="estimates/[id]" options={{ href: null, title: "Estimate" }} />
+      <Tabs.Screen name="estimates/sign/[id]" options={{ href: null, title: "Client signature" }} />
     </Tabs>
   );
 }

@@ -3,7 +3,12 @@ import { assertRole, type Actor } from "@/server/actor";
 import { iso, money, requiredIso, requiredMoney } from "@/server/serialize";
 import { ok, type ServiceResult } from "@/server/result";
 import type { EstimateStatusValue } from "@/contracts/enums";
-import { listTaxRates, type TaxRateRow } from "./catalogReads";
+import {
+  listClientsWithPools,
+  listTaxRates,
+  type ClientWithPools,
+  type TaxRateRow,
+} from "./catalogReads";
 
 // Estimates are built and presented by whoever is in front of the customer.
 const STAFF = ["ADMIN", "WORKER"] as const;
@@ -44,6 +49,7 @@ export type EstimateDetail = {
   status: EstimateStatusValue;
   clientId: string;
   clientName: string;
+  poolId: string | null;
   poolAddress: string | null;
   createdByName: string;
   notes: string | null;
@@ -134,6 +140,7 @@ export async function getEstimate(
     status: estimate.status as EstimateStatusValue,
     clientId: estimate.client.id,
     clientName: estimate.client.name,
+    poolId: estimate.poolId,
     poolAddress: estimate.pool?.address ?? null,
     createdByName: estimate.createdBy.name,
     notes: estimate.notes,
@@ -171,6 +178,19 @@ export async function getEstimate(
     isPresented: estimate.status === "PRESENTED",
     availableTaxRates,
   });
+}
+
+/**
+ * Who an estimate can be written for. Workers quote existing customers in the
+ * field, so they see the client list with each client's pools — names and
+ * addresses only, nothing about billing.
+ */
+export async function listEstimateClients(
+  actor: Actor
+): Promise<ServiceResult<ClientWithPools[]>> {
+  const denied = assertRole(actor, ...STAFF);
+  if (denied) return denied;
+  return ok(await listClientsWithPools());
 }
 
 /**

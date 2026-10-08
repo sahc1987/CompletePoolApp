@@ -1,6 +1,8 @@
 import { prisma } from "@/lib/prisma";
 import { toNumber } from "@/lib/serialize";
+import { notifyRoles } from "@/lib/notify";
 import { assertRole, type Actor } from "@/server/actor";
+import { createTask } from "./scheduling";
 import {
   badState,
   conflict,
@@ -17,6 +19,7 @@ import {
   deleteLineItemSchema,
   estimateIdSchema,
   removeTaxSchema,
+  scheduleEstimateSchema,
   signEstimateSchema,
   type AddLineItemInput,
   type AddTaxInput,
@@ -25,6 +28,7 @@ import {
   type DeleteLineItemInput,
   type EstimateIdInput,
   type RemoveTaxInput,
+  type ScheduleEstimateInput,
   type SignEstimateInput,
 } from "@/contracts/estimates";
 
@@ -171,7 +175,12 @@ export async function deleteLineItem(
   if (!(await editableDraft(estimateId))) {
     return badState("This estimate is locked.");
   }
-  await prisma.estimateLineItem.delete({ where: { id } });
+  // Scoped to the estimate that was checked above: a line id from another
+  // (possibly signed) estimate must not be removable through a draft's id.
+  const removed = await prisma.estimateLineItem.deleteMany({
+    where: { id, estimateId },
+  });
+  if (removed.count === 0) return notFound("Line item not found.");
   await recalc(estimateId);
   return ok();
 }
@@ -228,7 +237,10 @@ export async function removeTax(
   if (!(await editableDraft(estimateId))) {
     return badState("This estimate is locked.");
   }
-  await prisma.estimateTax.delete({ where: { id } });
+  const removed = await prisma.estimateTax.deleteMany({
+    where: { id, estimateId },
+  });
+  if (removed.count === 0) return notFound("Tax not found.");
   await recalc(estimateId);
   return ok();
 }
@@ -305,7 +317,7 @@ export async function signEstimate(
   }
 
   const now = new Date();
-  await prisma.estimate.update({
+  const signed = await prisma.estimate.update({
     where: { id: d.estimateId },
     data: {
       status: "APPROVED",
@@ -314,8 +326,66 @@ export async function signEstimate(
       signedAt: now,
       respondedAt: now,
     },
+    include: { client: { select: { name: true } } },
   });
+
+  // Signed work only turns into a job once an admin schedules it.
+  await notifyRoles(
+    ["ADMIN"],
+    `${signed.client.name} signed an estimate for $${(toNumber(signed.total) ?? 0).toFixed(2)} — ready to schedule.`,
+    { link: `/estimates/${signed.id}`, exceptUserId: actor.id }
+  );
   return ok();
+}
+
+/**
+ * Schedule a signed estimate as a job. Goes through `createTask`, so the job
+ * gets the same business-hours and double-booking checks as any other, and the
+ * estimate is linked to it so it can't be scheduled twice.
+ */
+export async function scheduleEstimate(
+  actor: Actor,
+  input: ScheduleEstimateInput
+): Promise<ServiceResult<{ taskId: string }>> {
+  const denied = assertRole(actor, "ADMIN");
+  if (denied) return denied;
+
+  const parsed = scheduleEstimateSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  const d = parsed.data;
+
+  const est = await prisma.estimate.findUnique({
+    where: { id: d.estimateId },
+    include: { lineItems: { orderBy: { id: "asc" } } },
+  });
+  if (!est) return notFound("Estimate not found.");
+  if (est.status !== "APPROVED") {
+    return badState("Only a signed estimate can be scheduled.");
+  }
+  if (est.convertedTaskId) return conflict("This estimate is already scheduled.");
+
+  const created = await createTask(actor, {
+    clientId: est.clientId,
+    poolId: d.poolId,
+    workerId: d.workerId,
+    serviceId: d.serviceId,
+    date: d.date,
+    time: d.time,
+    durationMin: d.durationMin,
+    price: d.price,
+    notes:
+      d.notes ??
+      `From signed estimate: ${est.lineItems.map((li) => li.description).join(", ")}`,
+    extras: [],
+    repeat: "NONE",
+  });
+  if (!created.ok) return created;
+
+  await prisma.estimate.update({
+    where: { id: est.id },
+    data: { convertedTaskId: created.data.id },
+  });
+  return ok({ taskId: created.data.id });
 }
 
 export async function declineEstimate(
@@ -334,14 +404,20 @@ export async function declineEstimate(
     return badState("This estimate isn't presented.");
   }
 
-  await prisma.estimate.update({
+  const declined = await prisma.estimate.update({
     where: { id: estimateId },
     data: {
       status: "DECLINED",
       declineReason: declineReason ?? null,
       respondedAt: new Date(),
     },
+    include: { client: { select: { name: true } } },
   });
+  await notifyRoles(
+    ["ADMIN"],
+    `${declined.client.name} declined an estimate${declineReason ? `: ${declineReason}` : "."}`,
+    { link: `/estimates/${declined.id}`, exceptUserId: actor.id }
+  );
   return ok();
 }
 
