@@ -223,4 +223,6 @@ export const api = {
     request<T>(path, { ...opts, method: "POST", body }),
   patch: <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, "method">) =>
     request<T>(path, { ...opts, method: "PATCH", body }),
+  del: <T>(path: string, opts?: Omit<RequestOptions, "method" | "body">) =>
+    request<T>(path, { ...opts, method: "DELETE" }),
 };

@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/recurrence",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron/photo-retention",
+      "schedule": "0 4 * * *"
     }
   ]
 }

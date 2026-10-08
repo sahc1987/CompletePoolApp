@@ -23,6 +23,7 @@ import {
   StatusBadge,
   Title,
 } from "@/ui/components";
+import { PhotoSection } from "@/features/photos/PhotoSection";
 import { color, space, type } from "@/ui/theme";
 
 /**
@@ -216,6 +217,8 @@ export default function TaskDetail() {
           <Body tone="muted">{task.notes}</Body>
         </Card>
       )}
+
+      <PhotoSection taskId={task.id} editable={canStart || canSubmit} />
 
       {canSubmit && (
         <Card>

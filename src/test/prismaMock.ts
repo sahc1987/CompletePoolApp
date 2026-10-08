@@ -15,6 +15,7 @@ export type PrismaMock = ReturnType<typeof createPrismaMock>;
 const MODELS = [
   "task",
   "taskExtra",
+  "photo",
   "taskMaterial",
   "bill",
   "payment",

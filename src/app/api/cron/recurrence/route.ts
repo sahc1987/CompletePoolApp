@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { expandRecurrences } from "@/lib/recurrence";
+import { cronRequestAllowed } from "@/server/api/cronAuth";
 
 // Cron entry point for recurrence expansion. Point a scheduler (Vercel Cron,
 // GitHub Actions, etc.) at GET /api/cron/recurrence. If CRON_SECRET is set,
@@ -9,13 +10,8 @@ import { expandRecurrences } from "@/lib/recurrence";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (secret) {
-    const url = new URL(req.url);
-    const auth = req.headers.get("authorization");
-    if (auth !== `Bearer ${secret}` && url.searchParams.get("key") !== secret) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!cronRequestAllowed(req)) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const created = await expandRecurrences();
   return NextResponse.json({ created });
