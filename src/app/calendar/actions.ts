@@ -1,12 +1,25 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireRole } from "@/lib/guard";
+import { requireRole, requireUser } from "@/lib/guard";
+import * as routeReads from "@/server/services/routeReads";
+import type { DayRoute } from "@/server/services/routeReads";
 import { parseMaterialUsage } from "@/lib/materials";
 import { checkbox, opt, str } from "@/lib/formData";
 import * as billingService from "@/server/services/billing";
 import * as scheduling from "@/server/services/scheduling";
 import type { ActionState } from "@/lib/actions";
+
+// The Map tab's data for one day. Read-only and open to every role — the
+// service scopes it (a worker gets only their own stops) — so it authenticates
+// any signed-in user rather than a specific role.
+export async function loadDayRoute(
+  day: string
+): Promise<{ data?: DayRoute; error?: string }> {
+  const actor = await requireUser();
+  const res = await routeReads.getDayRoute(actor, day);
+  return res.ok ? { data: res.data } : { error: res.error };
+}
 
 // Drag / resize a task on the calendar. Called directly (not via a form) from
 // FullCalendar's eventDrop/eventResize, so it keeps its positional signature

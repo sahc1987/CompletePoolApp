@@ -285,6 +285,14 @@ model Pool {
   size     String?
   type     String?
 
+  // Map position for the calendar's day map, looked up from `address` once and
+  // cached here. `geocodedAt` set with no coordinates means "looked up, not
+  // found" — so it isn't retried on every view. All three reset when the
+  // address changes.
+  latitude   Float?
+  longitude  Float?
+  geocodedAt DateTime?
+
   tasks     Task[]
   estimates Estimate[]
 }

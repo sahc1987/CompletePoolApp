@@ -126,9 +126,22 @@ export async function updatePool(
   if (!parsed.success) return invalid(parsed.error.errors[0].message);
   const { id, address, size, type } = parsed.data;
 
+  const before = await prisma.pool.findUnique({
+    where: { id },
+    select: { address: true },
+  });
+  // A new address invalidates the cached map position; the day map looks it
+  // up again the next time this pool is on it.
+  const moved = before?.address.trim() !== address.trim();
+
   await prisma.pool.update({
     where: { id },
-    data: { address, size: size ?? null, type: type ?? null },
+    data: {
+      address,
+      size: size ?? null,
+      type: type ?? null,
+      ...(moved ? { latitude: null, longitude: null, geocodedAt: null } : {}),
+    },
   });
   return ok();
 }

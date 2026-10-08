@@ -12,6 +12,7 @@ import { useToast } from "@/components/Toast";
 import { rescheduleTask } from "./actions";
 import EditTaskModal from "./EditTaskModal";
 import DaySummary from "./DaySummary";
+import DayMap from "./DayMap";
 
 // Flattened task shape the calendar renders, plus the raw fields the admin
 // editor needs to prefill (workerId, serviceId, durationMin).
@@ -113,7 +114,7 @@ export default function CalendarView({
   const calendarRef = useRef<FullCalendar>(null);
   const router = useRouter();
   const toast = useToast();
-  const [view, setView] = useState<"day" | "week">("week");
+  const [view, setView] = useState<"day" | "week" | "map">("week");
   // The visible range the summary below the grid describes: [focusDate,
   // rangeEnd). One day in Day view, seven in Week view.
   const [focusDate, setFocusDate] = useState(() => new Date(`${initialDate}T00:00:00`));
@@ -156,11 +157,14 @@ export default function CalendarView({
     }
   }, []);
 
-  function switchView(next: "day" | "week") {
+  function switchView(next: "day" | "week" | "map") {
     setView(next);
-    calendarRef.current
-      ?.getApi()
-      .changeView(next === "day" ? "timeGridDay" : "timeGridWeek");
+    // The grid stays mounted (hidden) under the map so it keeps its place;
+    // it only needs re-measuring when it's shown again.
+    if (next === "map") return;
+    const api = calendarRef.current?.getApi();
+    api?.changeView(next === "day" ? "timeGridDay" : "timeGridWeek");
+    requestAnimationFrame(() => api?.updateSize());
   }
 
   function onEventClick(arg: EventClickArg) {
@@ -224,10 +228,31 @@ export default function CalendarView({
           >
             Week
           </button>
+          <button
+            onClick={() => switchView("map")}
+            className={`rounded-full px-4 py-1.5 text-sm font-semibold transition ${
+              view === "map" ? "bg-navy-700 text-white" : "text-ink hover:bg-chrome-100"
+            }`}
+          >
+            Map
+          </button>
         </div>
       </div>
 
-      <div className="calendar-shell rounded-2xl border border-line/80 bg-white p-3 shadow-card sm:p-4">
+      {view === "map" && (
+        <DayMap
+          initialDay={initialDate}
+          role={role}
+          onOpenJob={isAdmin ? setEditingId : undefined}
+          refreshToken={tasks}
+        />
+      )}
+
+      <div
+        className={`calendar-shell rounded-2xl border border-line/80 bg-white p-3 shadow-card sm:p-4 ${
+          view === "map" ? "hidden" : ""
+        }`}
+      >
         <FullCalendar
           ref={calendarRef}
           plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin]}
@@ -320,6 +345,7 @@ export default function CalendarView({
         />
       </div>
 
+      {view !== "map" && (
       <DaySummary
         tasks={tasks}
         from={focusDate}
@@ -328,6 +354,7 @@ export default function CalendarView({
         role={role}
         onSelect={isAdmin ? setEditingId : undefined}
       />
+      )}
 
       {editing && isAdmin && (
         <EditTaskModal
