@@ -186,7 +186,7 @@ export default async function BillingPage({
   const bills = billsResult.ok ? billsResult.data : [];
 
   const rows = bills.map((b) => {
-    const { amount, paid, balance, lineItems } = b;
+    const { amount, paid, balance, lineItems, subtotal, taxes } = b;
 
     const invoice: InvoiceData = {
       invoiceNo: invoiceNumber(b.invoiceNo),
@@ -202,6 +202,8 @@ export default async function BillingPage({
       jobDate: fmtDate(b.task.date),
       serviceName: b.task.serviceName,
       lineItems,
+      subtotal,
+      taxes,
       total: amount,
       paid,
       balance,

@@ -62,7 +62,7 @@ export default function TaskDetail() {
       setError(
         found
           ? null
-          : "This job is no longer on your list. It may have been approved or reassigned."
+          : "This job is no longer on your list. It may have been approved, reassigned or cancelled."
       );
       setRetryable(false);
     } catch (e) {

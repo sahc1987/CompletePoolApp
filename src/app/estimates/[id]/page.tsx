@@ -293,7 +293,8 @@ export default async function EstimateDetailPage({
               </p>
               <ScheduleEstimateForm
                 estimateId={estimate.id}
-                total={estimate.total ?? 0}
+                subtotal={estimate.subtotal ?? 0}
+                taxed={estimate.taxes.length > 0}
                 defaultPoolId={estimate.poolId}
                 pools={
                   schedulingCatalog.clients.find((c) => c.id === estimate.clientId)

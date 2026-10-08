@@ -1,7 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import {
+  estimateTaxRates,
   invoiceLineItems,
   paidAmount,
+  splitBillTax,
+  type BillTaxLine,
   type InvoiceLine,
 } from "@/lib/billing";
 import { assertRole, type Actor } from "@/server/actor";
@@ -58,6 +61,10 @@ export type BillRow = {
   balance: number;
   /** The job's price with each add-on and material itemised beneath it. */
   lineItems: InvoiceLine[];
+  /** Line items summed, before tax. Equals `amount` on an untaxed bill. */
+  subtotal: number;
+  /** Only on jobs scheduled from a signed estimate, at that estimate's rates. */
+  taxes: BillTaxLine[];
   payments: BillPaymentRow[];
   reversals: BillReversalRow[];
   task: {
@@ -104,6 +111,7 @@ const billInclude = {
       materials: {
         include: { material: { select: { name: true, unit: true } } },
       },
+      estimate: { select: { taxes: { select: { name: true, ratePercent: true } } } },
     },
   },
 } as const;
@@ -118,6 +126,7 @@ function toRow(b: BillWithRelations): BillRow {
   const amount = requiredMoney(b.amount);
   const paid = paidAmount(b.payments);
   const balance = Math.round((amount - paid) * 100) / 100;
+  const { subtotal, taxes } = splitBillTax(amount, estimateTaxRates(b.task.estimate));
 
   // Receipts show the balance *after* their own payment, so walk the payments
   // in order and carry a running total.
@@ -147,8 +156,11 @@ function toRow(b: BillWithRelations): BillRow {
     amount,
     paid,
     balance,
+    subtotal,
+    taxes,
     lineItems: invoiceLineItems({
-      billAmount: amount,
+      // The rows sum to the pre-tax subtotal; tax prints beneath them.
+      billAmount: subtotal,
       serviceName: b.task.service.name,
       extras: b.task.extras.map((e) => ({
         name: e.extraService.name,

@@ -19,6 +19,7 @@ jest.mock("@/lib/notify", () => ({
 
 const prismaMock: PrismaMock = jest.requireMock("@/lib/prisma").prisma;
 const { notifyRoles, notifyUser } = jest.requireMock("@/lib/notify");
+const { createBillForTask } = jest.requireMock("@/lib/billing");
 
 import {
   cancelTask,
@@ -30,6 +31,7 @@ import { createMaterialRequest, submitTask } from "../worker";
 import { approveTask, flagTask } from "../review";
 import { respondMaterialRequest } from "../materials";
 import { scheduleEstimate } from "../estimates";
+import { chargeTask } from "../billing";
 
 const worker: Actor = { id: "w1", role: "WORKER", name: "Wendy" };
 const admin: Actor = { id: "a1", role: "ADMIN", name: "Ada" };
@@ -91,6 +93,15 @@ describe("cancelling a job", () => {
     });
   });
 
+  it("releases the signed estimate it came from, so it can be rescheduled", async () => {
+    const res = await cancelTask(admin, { taskId: "t1" });
+    expect(res.ok).toBe(true);
+    expect(prismaMock.estimate.updateMany).toHaveBeenCalledWith({
+      where: { convertedTaskId: "t1" },
+      data: { convertedTaskId: null },
+    });
+  });
+
   it("won't cancel a job that has been billed", async () => {
     seedTask({ status: "APPROVED" });
     const res = await cancelTask(admin, { taskId: "t1" });
@@ -109,6 +120,21 @@ describe("cancelling a job", () => {
     const res = await cancelTask(worker, { taskId: "t1" });
     expect(res).toMatchObject({ ok: false, code: "FORBIDDEN" });
   });
+});
+
+describe("charging a job", () => {
+  const payment = { taskId: "t1", amount: 50, method: "CASH" };
+
+  it.each(["SCHEDULED", "IN_PROGRESS", "SUBMITTED", "CANCELLED"])(
+    "won't bill a %s job",
+    async (status) => {
+      seedTask({ status });
+      const res = await chargeTask(admin, payment);
+      expect(res).toMatchObject({ ok: false, code: "STATE" });
+      expect(createBillForTask).not.toHaveBeenCalled();
+      expect(prismaMock.payment.create).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe("ending a repeating series", () => {

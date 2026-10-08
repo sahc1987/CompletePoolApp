@@ -66,6 +66,50 @@ export function invoiceLineItems(input: {
   return [{ description: input.serviceName, amount: service }, ...extras, ...materials];
 }
 
+/** A tax as the estimate snapshotted it when the customer signed. */
+export type BillTaxRate = { name: string; ratePercent: number };
+export type BillTaxLine = BillTaxRate & { amount: number };
+
+/**
+ * Tax on a bill, each rate applied to the whole taxable amount (service,
+ * add-ons and materials) and rounded to the cent.
+ *
+ * Only jobs scheduled from a signed estimate are taxed, at that estimate's
+ * rates — everything else passes an empty list and gets no tax.
+ */
+export function billTaxes(taxable: number, rates: BillTaxRate[]): BillTaxLine[] {
+  return rates.map((r) => ({
+    name: r.name,
+    ratePercent: r.ratePercent,
+    amount: round2((taxable * r.ratePercent) / 100),
+  }));
+}
+
+/**
+ * Split a stored bill total back into its pre-tax subtotal and tax rows, for
+ * printing.
+ *
+ * A bill stores only its total, so the split is recovered from the rates. The
+ * last tax row absorbs any rounding cent, keeping the invariant that matters on
+ * a customer-facing document: subtotal + tax rows = the total printed under it.
+ */
+export function splitBillTax(
+  billAmount: number,
+  rates: BillTaxRate[]
+): { subtotal: number; taxes: BillTaxLine[] } {
+  if (rates.length === 0) return { subtotal: billAmount, taxes: [] };
+
+  const totalRate = rates.reduce((s, r) => s + r.ratePercent, 0);
+  const subtotal = round2(billAmount / (1 + totalRate / 100));
+  const taxes = billTaxes(subtotal, rates);
+  const drift = round2(billAmount - subtotal - taxes.reduce((s, t) => s + t.amount, 0));
+  if (drift !== 0) {
+    const last = taxes[taxes.length - 1];
+    last.amount = round2(last.amount + drift);
+  }
+  return { subtotal, taxes };
+}
+
 export type PaymentInput = {
   billId: string;
   amount: number;
@@ -193,14 +237,19 @@ export async function resetBillPayments(
 }
 
 // A finished job's bill amount = service price + extras + materials billed to
-// the customer, snapshotted at approval time.
+// the customer, snapshotted at approval time — plus, for a job scheduled from a
+// signed estimate, that estimate's taxes on the whole of it.
 export async function createBillForTask(taskId: string) {
   const existing = await prisma.bill.findUnique({ where: { taskId } });
   if (existing) return existing;
 
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    include: { extras: true, materials: true },
+    include: {
+      extras: true,
+      materials: true,
+      estimate: { include: { taxes: true } },
+    },
   });
   if (!task) return null;
 
@@ -213,9 +262,24 @@ export async function createBillForTask(taskId: string) {
       s + (toNumber(m.quantityUsed) ?? 0) * (toNumber(m.customerPriceAtTimeOfUse) ?? 0),
     0
   );
-  const amount = (toNumber(task.price) ?? 0) + extras + materials;
+  const taxable = round2((toNumber(task.price) ?? 0) + extras + materials);
+  const tax = billTaxes(taxable, estimateTaxRates(task.estimate)).reduce(
+    (s, t) => s + t.amount,
+    0
+  );
+  const amount = round2(taxable + tax);
 
   return prisma.bill.create({ data: { taskId, amount, status: "PENDING" } });
+}
+
+/** The tax rates a job carries: its signed estimate's, or none. */
+export function estimateTaxRates(
+  estimate: { taxes: { name: string; ratePercent: Prisma.Decimal | number }[] } | null | undefined
+): BillTaxRate[] {
+  return (estimate?.taxes ?? []).map((t) => ({
+    name: t.name,
+    ratePercent: toNumber(t.ratePercent) ?? 0,
+  }));
 }
 
 // Create bills for any APPROVED job that doesn't have one yet (e.g. jobs

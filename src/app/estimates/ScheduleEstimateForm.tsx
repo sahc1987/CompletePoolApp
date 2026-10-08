@@ -13,12 +13,14 @@ type Service = Option & { defaultDurationMin: number };
 
 /**
  * Turns a signed estimate into a job on the calendar. The price starts at the
- * signed total — what the customer agreed to — and the job gets the same
+ * signed pre-tax subtotal: the estimate's taxes are added on the job's bill, so
+ * starting from the total would tax the customer twice. The job gets the same
  * business-hours and double-booking checks as one made on the assign page.
  */
 export default function ScheduleEstimateForm({
   estimateId,
-  total,
+  subtotal,
+  taxed,
   defaultPoolId,
   pools,
   workers,
@@ -27,7 +29,10 @@ export default function ScheduleEstimateForm({
   workEnd,
 }: {
   estimateId: string;
-  total: number;
+  /** Pre-tax amount the customer signed for. */
+  subtotal: number;
+  /** The estimate carries tax, which will be added on the bill. */
+  taxed: boolean;
   defaultPoolId: string | null;
   pools: { id: string; address: string }[];
   workers: Option[];
@@ -134,11 +139,17 @@ export default function ScheduleEstimateForm({
             step="0.01"
             min={0}
             required
-            defaultValue={total.toFixed(2)}
+            defaultValue={subtotal.toFixed(2)}
             className={inputClass}
           />
         </div>
       </div>
+      {taxed && (
+        <p className="text-xs text-faint">
+          Before tax. The estimate&apos;s taxes are added on the bill, on the
+          price plus any add-ons and materials.
+        </p>
+      )}
 
       {state?.error && <p className="text-sm text-danger">{state.error}</p>}
       <SubmitButton pendingLabel="Scheduling…">Schedule job</SubmitButton>

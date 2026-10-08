@@ -88,6 +88,18 @@ export async function chargeTask(
   if (!parsed.success) return invalid(parsed.error.errors[0].message);
   const { taskId, ...payment } = parsed.data;
 
+  // A bill is raised for finished work only. Without this, charging a job
+  // still on the schedule (or one that was cancelled) would invent a bill for
+  // work that never happened.
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { status: true },
+  });
+  if (!task) return notFound("Task not found.");
+  if (task.status !== "APPROVED") {
+    return badState("Finish the job before charging for it.");
+  }
+
   const bill =
     (await prisma.bill.findUnique({ where: { taskId } })) ??
     (await createBillForTask(taskId));

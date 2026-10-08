@@ -464,6 +464,12 @@ export async function cancelTask(
       where: { id: taskId },
       data: { status: "CANCELLED" },
     });
+    // A job scheduled from a signed estimate releases it, so the estimate
+    // can be scheduled again instead of pointing at a cancelled job.
+    await tx.estimate.updateMany({
+      where: { convertedTaskId: taskId },
+      data: { convertedTaskId: null },
+    });
   });
 
   const tz = (await getWorkHours()).timezone;
