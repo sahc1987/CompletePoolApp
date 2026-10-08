@@ -67,7 +67,47 @@ export const radius = {
   sm: 8,
   md: 12,
   lg: 16,
+  xl: 22,
+  /** The curve at the bottom of the blue header. */
+  hero: 32,
   pill: 999,
+} as const;
+
+/**
+ * Soft, navy-tinted elevation. Cards float off the pale surface the way the
+ * reference design does, instead of sitting in hard grey outlines.
+ */
+export const shadow = {
+  card: {
+    shadowColor: "#0b2a63",
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  raised: {
+    shadowColor: "#0b2a63",
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
+  },
+} as const;
+
+/** Header gradient, deep navy into the brand blue. */
+export const heroGradient = ["#0b2a63", "#1a56db"] as const;
+
+/**
+ * Each dashboard tile gets its own tint so the grid scans at a glance. Every
+ * foreground clears 4.5:1 on its own background.
+ */
+export const tileTone = {
+  jobs: { fg: "#1a56db", bg: "#e6efff" },
+  estimates: { fg: "#0e7490", bg: "#dff4f7" },
+  materials: { fg: "#b45309", bg: "#fdf0dc" },
+  map: { fg: "#6d28d9", bg: "#efe8fd" },
+  account: { fg: "#334155", bg: "#e8edf4" },
+  photos: { fg: "#be123c", bg: "#fde8ec" },
 } as const;
 
 /**

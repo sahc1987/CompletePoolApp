@@ -217,6 +217,41 @@ export const estimates = {
     api.post<void>(`/estimates/${id}/decline`, body),
 };
 
+export type RouteStop = {
+  taskId: string;
+  workerId: string;
+  workerName: string;
+  /** 1-based position in the worker's day. */
+  order: number;
+  clientName: string;
+  serviceName: string;
+  address: string;
+  start: string;
+  /** Already formatted in the business's zone, e.g. "9:30 AM". */
+  timeLabel: string;
+  durationMin: number;
+  status: TaskStatusValue;
+  /** Null when the address couldn't be placed on the map. */
+  lat: number | null;
+  lng: number | null;
+};
+
+export type DayRoute = {
+  day: string;
+  dayLabel: string;
+  today: string;
+  prevDay: string;
+  nextDay: string;
+  workers: { id: string; name: string }[];
+  stops: RouteStop[];
+};
+
+export const dayRoute = {
+  /** Omit `day` for today, as the business counts it. */
+  get: (day?: string) =>
+    api.get<DayRoute>(day ? `/day-route?day=${encodeURIComponent(day)}` : "/day-route"),
+};
+
 export const notifications = {
   /**
    * Polled on foreground and pull-to-refresh. The web pushes this over SSE,

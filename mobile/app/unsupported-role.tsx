@@ -1,4 +1,5 @@
 import { Text, StyleSheet } from "react-native";
+import { Redirect } from "expo-router";
 import { useAuth } from "@/auth/AuthContext";
 import { Button, Card, Screen, Title } from "@/ui/components";
 import { color, space, type } from "@/ui/theme";
@@ -10,7 +11,10 @@ import { color, space, type } from "@/ui/theme";
  * letting them conclude the app is broken.
  */
 export default function UnsupportedRole() {
-  const { user, signOut } = useAuth();
+  const { status, user, signOut } = useAuth();
+
+  // Signing out from here has to leave the page, or it looks like nothing happened.
+  if (status === "signedOut") return <Redirect href="/sign-in" />;
 
   return (
     <Screen>

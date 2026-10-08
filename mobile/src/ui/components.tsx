@@ -12,7 +12,22 @@ import {
   type ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { HIT_SIZE, color, radius, space, statusTone, type } from "./theme";
+import { LinearGradient } from "expo-linear-gradient";
+import Ionicons from "@expo/vector-icons/Ionicons";
+import {
+  HIT_SIZE,
+  color,
+  heroGradient,
+  radius,
+  shadow,
+  space,
+  statusTone,
+  tileTone,
+  type,
+} from "./theme";
+
+export type IconName = React.ComponentProps<typeof Ionicons>["name"];
+export { Ionicons as Icon };
 import { useLayout } from "./useLayout";
 
 /**
@@ -52,9 +67,9 @@ export function Screen({
       style={s.screen}
       contentContainerStyle={{
         padding: space.lg,
-        // Clear of the home indicator, plus room so the last card isn't flush
-        // against the tab bar.
-        paddingBottom: insets.bottom + space.xxl,
+        // Clear of the home indicator and the floating tab bar, which sits
+        // over the content rather than below it.
+        paddingBottom: insets.bottom + 110,
       }}
       refreshControl={refreshControl}
       keyboardShouldPersistTaps="handled"
@@ -234,6 +249,100 @@ export function Loading({ label }: { label?: string }) {
   );
 }
 
+/**
+ * The blue curved header that opens a top-level screen. Full-bleed: it cancels
+ * the Screen's padding so the gradient reaches the edges, and clears the
+ * status bar itself because these screens hide the navigation header.
+ */
+export function Hero({
+  title,
+  subtitle,
+  right,
+  children,
+}: {
+  title: string;
+  subtitle?: string;
+  /** Top-right slot, e.g. an Avatar. */
+  right?: ReactNode;
+  /** Extra content inside the blue area, under the title. */
+  children?: ReactNode;
+}) {
+  const insets = useSafeAreaInsets();
+  return (
+    <LinearGradient
+      colors={heroGradient}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={[s.hero, { paddingTop: insets.top + space.lg }]}
+    >
+      <View style={s.heroRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={s.heroTitle}>{title}</Text>
+          {!!subtitle && <Text style={s.heroSubtitle}>{subtitle}</Text>}
+        </View>
+        {right}
+      </View>
+      {children}
+    </LinearGradient>
+  );
+}
+
+/** Initials in a circle — the signed-in person, top right of the header. */
+export function Avatar({ name, onPress }: { name: string; onPress?: () => void }) {
+  const initials = name
+    .split(/s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0]!.toUpperCase())
+    .join("");
+  return (
+    <Pressable
+      accessibilityRole={onPress ? "button" : undefined}
+      accessibilityLabel={`Account for ${name}`}
+      onPress={onPress}
+      disabled={!onPress}
+      style={s.avatar}
+    >
+      <Text style={s.avatarText}>{initials || "?"}</Text>
+    </Pressable>
+  );
+}
+
+/** A dashboard tile: tinted icon, label, and an optional one-line detail. */
+export function Tile({
+  icon,
+  label,
+  detail,
+  tone,
+  onPress,
+}: {
+  icon: IconName;
+  label: string;
+  detail?: string;
+  tone: keyof typeof tileTone;
+  onPress: () => void;
+}) {
+  const t = tileTone[tone];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={detail ? `${label}, ${detail}` : label}
+      onPress={onPress}
+      style={({ pressed }) => [s.tile, pressed && { transform: [{ scale: 0.97 }], opacity: 0.9 }]}
+    >
+      <View style={[s.tileIcon, { backgroundColor: t.bg }]}>
+        <Ionicons name={icon} size={28} color={t.fg} />
+      </View>
+      <Text style={s.tileLabel}>{label}</Text>
+      {!!detail && (
+        <Text style={s.tileDetail} numberOfLines={1}>
+          {detail}
+        </Text>
+      )}
+    </Pressable>
+  );
+}
+
 /** One option in a wrapping row of choices — a material, a client, a job. */
 export function Chip({
   label,
@@ -276,11 +385,10 @@ const s = StyleSheet.create({
   screen: { flex: 1, backgroundColor: color.surface },
   card: {
     backgroundColor: color.white,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: color.line,
+    borderRadius: radius.xl,
     padding: space.lg,
     marginBottom: space.md,
+    ...shadow.card,
   },
   title: { ...type.title, color: color.ink, marginBottom: space.sm },
   heading: { ...type.heading, color: color.ink, marginBottom: space.sm },
@@ -292,7 +400,7 @@ const s = StyleSheet.create({
   },
   button: {
     minHeight: HIT_SIZE,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: space.lg,
@@ -356,6 +464,49 @@ const s = StyleSheet.create({
   },
   chipOn: { backgroundColor: color.teal700, borderColor: color.teal700 },
   chipText: { ...type.small, color: color.ink, fontWeight: "600" },
+  hero: {
+    marginHorizontal: -space.lg,
+    marginTop: -space.lg,
+    marginBottom: space.lg,
+    paddingHorizontal: space.xl,
+    paddingBottom: space.xxl,
+    borderBottomLeftRadius: radius.hero,
+    borderBottomRightRadius: radius.hero,
+  },
+  heroRow: { flexDirection: "row", alignItems: "center", gap: space.md },
+  heroTitle: { ...type.display, color: color.white },
+  heroSubtitle: { ...type.body, color: "#d6e4ff", marginTop: space.xs },
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { ...type.bodyStrong, color: color.white },
+  tile: {
+    flexBasis: "47%",
+    flexGrow: 1,
+    backgroundColor: color.white,
+    borderRadius: radius.xl,
+    paddingVertical: space.xl,
+    paddingHorizontal: space.md,
+    alignItems: "center",
+    ...shadow.card,
+  },
+  tileIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: space.md,
+  },
+  tileLabel: { ...type.bodyStrong, color: color.ink, textAlign: "center" },
+  tileDetail: { ...type.small, color: color.muted, marginTop: 2, textAlign: "center" },
   rowLabel: { ...type.small, color: color.muted },
   rowValue: { ...type.bodyStrong, color: color.ink, textAlign: "right" },
 });

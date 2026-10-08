@@ -1,7 +1,7 @@
-import { Alert } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthContext";
-import { Button, Card, Row, Screen, Title } from "@/ui/components";
-import { space } from "@/ui/theme";
+import { Avatar, Button, Card, Icon, Row, Screen, type IconName } from "@/ui/components";
+import { color, space, type } from "@/ui/theme";
 
 export default function Account() {
   const { user, signOut } = useAuth();
@@ -18,13 +18,17 @@ export default function Account() {
 
   return (
     <Screen>
-      <Title>My account</Title>
+      <View style={s.profile}>
+        <View style={s.avatarWrap}>
+          <Avatar name={user?.name ?? ""} />
+        </View>
+        <Text style={s.name}>{user?.name ?? "—"}</Text>
+        <Text style={s.role}>{user ? user.role.toLowerCase() : ""}</Text>
+      </View>
 
       <Card>
-        <Row label="Name" value={user?.name ?? "—"} />
-        <Row label="Email" value={user?.email ?? "—"} />
-        <Row label="Phone" value={user?.phone ?? "Not set"} />
-        <Row label="Role" value={user ? user.role.toLowerCase() : "—"} />
+        <Line icon="mail-outline" label="Email" value={user?.email ?? "—"} />
+        <Line icon="call-outline" label="Phone" value={user?.phone ?? "Not set"} />
       </Card>
 
       <Button
@@ -36,3 +40,26 @@ export default function Account() {
     </Screen>
   );
 }
+
+function Line({ icon, label, value }: { icon: IconName; label: string; value: string }) {
+  return (
+    <Row
+      label={label}
+      value={
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Icon name={icon} size={16} color={color.muted} />
+          <Text style={s.value}>{value}</Text>
+        </View>
+      }
+    />
+  );
+}
+
+const s = StyleSheet.create({
+  profile: { alignItems: "center", marginVertical: space.lg },
+  // The header avatar is white-on-blue; here it sits on navy to match.
+  avatarWrap: { backgroundColor: color.navy700, borderRadius: 30, padding: 4, marginBottom: space.md },
+  name: { ...type.title, color: color.ink },
+  role: { ...type.small, color: color.muted, textTransform: "capitalize" },
+  value: { ...type.bodyStrong, color: color.ink },
+});

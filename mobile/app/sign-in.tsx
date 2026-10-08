@@ -1,12 +1,13 @@
 import { useState } from "react";
+import { Redirect } from "expo-router";
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/api/client";
 import { useAuth } from "@/auth/AuthContext";
-import { Button, Field, Screen } from "@/ui/components";
+import { Button, Card, Field, Hero, Screen } from "@/ui/components";
 import { color, space, type } from "@/ui/theme";
 
 export default function SignIn() {
-  const { signIn } = useAuth();
+  const { signIn, status } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +19,8 @@ export default function SignIn() {
     setBusy(true);
     try {
       await signIn(email.trim(), password);
-      // No navigation here: the auth state changes and the launch gate routes.
+      // No navigation here: the auth state changes and the redirect below
+      // sends the user to the launch gate, which routes by role.
     } catch (e) {
       // The server deliberately gives one message for a wrong password, an
       // unknown address and a disabled account, so there is nothing to
@@ -32,16 +34,20 @@ export default function SignIn() {
     }
   };
 
+  // Signed in: hand over to the launch gate, which routes by role. The gate is
+  // the "/" screen, which was replaced by this one on the way in, so it has to
+  // be navigated back to — it can't react to the sign-in from here.
+  if (status === "authenticated") return <Redirect href="/" />;
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={{ flex: 1 }}
     >
       <Screen>
-        <View style={s.header}>
-          <Text style={s.wordmark}>Complete Pool</Text>
-          <Text style={s.tagline}>Sign in to see your day.</Text>
-        </View>
+        <Hero title="Complete Pool" subtitle="Sign in to see your day." />
+
+        <Card>
 
         <Field
           label="Email"
@@ -82,6 +88,7 @@ export default function SignIn() {
           loading={busy}
           disabled={!email.trim() || !password}
         />
+        </Card>
 
         <Text style={s.help}>
           Forgot your password? Ask an admin to reset it — they can do that from
@@ -93,9 +100,6 @@ export default function SignIn() {
 }
 
 const s = StyleSheet.create({
-  header: { marginTop: space.xxl, marginBottom: space.xl },
-  wordmark: { ...type.display, color: color.navy900 },
-  tagline: { ...type.body, color: color.muted, marginTop: space.xs },
   error: {
     ...type.body,
     color: color.danger,

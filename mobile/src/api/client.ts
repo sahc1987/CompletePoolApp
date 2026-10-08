@@ -159,20 +159,38 @@ async function parseError(res: Response): Promise<ApiError> {
   );
 }
 
+/**
+ * How long a request may take before the app gives up and says so. Without
+ * this a request on a dead connection can hang for a minute or more, leaving a
+ * button spinning with no explanation.
+ */
+const REQUEST_TIMEOUT_MS = 20_000;
+
 async function send(
   path: string,
   opts: RequestOptions,
   accessToken: string | null
 ): Promise<Response> {
-  return fetch(`${apiBase()}${path}`, {
-    method: opts.method ?? "GET",
-    headers: {
-      ...(opts.body === undefined ? {} : { "content-type": "application/json" }),
-      ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
-    },
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
-    signal: opts.signal,
-  });
+  // A caller's own signal still works; the timeout is added alongside it. The
+  // abort surfaces as a thrown error, which request() reports as OFFLINE.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const onCallerAbort = () => controller.abort();
+  opts.signal?.addEventListener("abort", onCallerAbort);
+  try {
+    return await fetch(`${apiBase()}${path}`, {
+      method: opts.method ?? "GET",
+      headers: {
+        ...(opts.body === undefined ? {} : { "content-type": "application/json" }),
+        ...(accessToken ? { authorization: `Bearer ${accessToken}` } : {}),
+      },
+      body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+    opts.signal?.removeEventListener("abort", onCallerAbort);
+  }
 }
 
 export async function request<T>(

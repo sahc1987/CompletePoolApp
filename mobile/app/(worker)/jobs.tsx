@@ -4,15 +4,14 @@ import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native"
 import { useTasks } from "@/api/useTasks";
 import type { WorkerTask } from "@/api/endpoints";
 import {
-  Button,
-  Card,
   Empty,
   ErrorNotice,
+  Icon,
   Loading,
   Screen,
   StatusBadge,
 } from "@/ui/components";
-import { color, radius, space, type } from "@/ui/theme";
+import { color, radius, shadow, space, statusTone, type } from "@/ui/theme";
 
 /** A job's start time, rendered in the business's zone rather than the phone's. */
 function timeOfDay(iso: string, timeZone: string | undefined) {
@@ -37,17 +36,30 @@ function JobCard({
       accessibilityRole="button"
       accessibilityLabel={`${task.serviceName} for ${task.clientName} at ${timeOfDay(task.startTime, timeZone)}`}
       onPress={onPress}
-      style={({ pressed }) => [s.job, pressed && { opacity: 0.85 }]}
+      style={({ pressed }) => [
+        s.job,
+        // The status color runs down the card's edge, so a list of jobs reads
+        // at a glance: what's done, what's next, what came back.
+        { borderLeftColor: statusTone[task.status]?.fg ?? color.line },
+        pressed && { opacity: 0.88, transform: [{ scale: 0.99 }] },
+      ]}
     >
       <View style={s.jobTop}>
-        <Text style={s.time}>{timeOfDay(task.startTime, timeZone)}</Text>
+        <View style={s.iconLine}>
+          <Icon name="time-outline" size={17} color={color.navy700} />
+          <Text style={s.time}>{timeOfDay(task.startTime, timeZone)}</Text>
+          <Text style={s.duration}>· {task.durationMin} min</Text>
+        </View>
         <StatusBadge status={task.status} />
       </View>
       <Text style={s.client}>{task.clientName}</Text>
       <Text style={s.service}>{task.serviceName}</Text>
-      <Text style={s.address} numberOfLines={2}>
-        {task.poolAddress}
-      </Text>
+      <View style={[s.iconLine, { marginTop: space.sm }]}>
+        <Icon name="location-outline" size={16} color={color.faint} />
+        <Text style={s.address} numberOfLines={2}>
+          {task.poolAddress}
+        </Text>
+      </View>
       {!!task.flagReason && (
         <View style={s.flag}>
           <Text style={s.flagText}>{task.flagReason}</Text>
@@ -117,13 +129,6 @@ export default function MyDay() {
           ))}
         </View>
       ))}
-
-      {/* Occasional, so it sits below the day rather than competing with it. */}
-      <Button
-        title="Request materials"
-        variant="secondary"
-        onPress={() => router.push("/(worker)/materials")}
-      />
     </Screen>
   );
 }
@@ -132,12 +137,14 @@ const s = StyleSheet.create({
   groupLabel: { ...type.label, color: color.faint, marginBottom: space.sm },
   job: {
     backgroundColor: color.white,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: color.line,
+    borderRadius: radius.xl,
+    borderLeftWidth: 5,
     padding: space.lg,
     marginBottom: space.md,
+    ...shadow.card,
   },
+  iconLine: { flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 1 },
+  duration: { ...type.small, color: color.faint },
   jobTop: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -147,7 +154,7 @@ const s = StyleSheet.create({
   time: { ...type.bodyStrong, color: color.navy700 },
   client: { ...type.title, color: color.ink },
   service: { ...type.body, color: color.muted, marginTop: 2 },
-  address: { ...type.small, color: color.faint, marginTop: space.xs },
+  address: { ...type.small, color: color.faint, flexShrink: 1 },
   flag: {
     marginTop: space.md,
     padding: space.md,
