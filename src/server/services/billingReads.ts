@@ -8,6 +8,7 @@ import {
   type InvoiceLine,
 } from "@/lib/billing";
 import { assertRole, type Actor } from "@/server/actor";
+import { payUrlFor } from "@/server/payments/stripe";
 import { requiredIso, requiredMoney } from "@/server/serialize";
 import { ok, type ServiceResult } from "@/server/result";
 import type {
@@ -65,6 +66,11 @@ export type BillRow = {
   subtotal: number;
   /** Only on jobs scheduled from a signed estimate, at that estimate's rates. */
   taxes: BillTaxLine[];
+  /**
+   * The customer's online pay link, while something is owed and online payment
+   * is set up; null otherwise.
+   */
+  payUrl: string | null;
   payments: BillPaymentRow[];
   reversals: BillReversalRow[];
   task: {
@@ -158,6 +164,7 @@ function toRow(b: BillWithRelations): BillRow {
     balance,
     subtotal,
     taxes,
+    payUrl: balance > 0 ? payUrlFor(b.payToken) : null,
     lineItems: invoiceLineItems({
       // The rows sum to the pre-tax subtotal; tax prints beneath them.
       billAmount: subtotal,

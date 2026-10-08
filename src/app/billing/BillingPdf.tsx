@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import QRCode from "qrcode";
 import {
   Document,
   Image,
@@ -63,6 +64,8 @@ export type InvoiceData = {
   paid: number;
   balance: number;
   status: "PENDING" | "PARTIAL" | "PAID";
+  /** Customer's online pay link; printed with a QR code while unpaid. */
+  payUrl?: string | null;
   company?: CompanyBlock;
 };
 
@@ -283,6 +286,17 @@ const s = StyleSheet.create({
     transform: "rotate(-24deg)",
   },
 
+  payOnline: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: RULE,
+    borderRadius: 4,
+    padding: 8,
+  },
+  qr: { width: 64, height: 64, marginRight: 10 },
+  payLink: { fontSize: 7.5, color: NAVY, marginTop: 2 },
+
   thanks: { fontSize: 12, fontFamily: "Helvetica-Oblique", color: NAVY, marginTop: 26 },
 
   // --- footer ---
@@ -425,7 +439,16 @@ function Footer({ company, note }: { company: CompanyBlock; note: string }) {
 
 // Exported so the documents can be rendered outside the browser (tests, or a
 // future email/attachment path) without going through the download button.
-export function InvoiceDoc({ data, logo }: { data: InvoiceData; logo?: string | null }) {
+export function InvoiceDoc({
+  data,
+  logo,
+  qr,
+}: {
+  data: InvoiceData;
+  logo?: string | null;
+  /** PNG data URL of a QR code for `data.payUrl`. */
+  qr?: string | null;
+}) {
   const company = { ...DEFAULT_COMPANY, ...(data.company ?? {}) };
   const settled = data.status === "PAID";
   const terms = company.paymentTerms || "Due upon receipt";
@@ -518,6 +541,16 @@ export function InvoiceDoc({ data, logo }: { data: InvoiceData; logo?: string | 
                 </Text>
               </View>
             )}
+            {!settled && data.payUrl ? (
+              <View style={s.payOnline}>
+                {qr ? <Image src={qr} style={s.qr} /> : null}
+                <View style={{ flex: 1 }}>
+                  <Text style={s.label}>PAY ONLINE BY CARD</Text>
+                  <Text>Scan the code or open the link to pay securely.</Text>
+                  <Text style={s.payLink}>{data.payUrl}</Text>
+                </View>
+              </View>
+            ) : null}
           </View>
 
           <View style={s.totals}>
@@ -735,12 +768,15 @@ function DownloadButton({
   label,
   filename,
   doc,
+  qrFor,
   className,
 }: {
   label: string;
   filename: string;
-  /** Builds the document once the logo is ready. */
-  doc: (logo: string | null) => React.ReactElement;
+  /** Builds the document once its images are ready. */
+  doc: (assets: { logo: string | null; qr: string | null }) => React.ReactElement;
+  /** Draw a QR code for this URL and hand it to the document. */
+  qrFor?: string | null;
   className?: string;
 }) {
   const [busy, setBusy] = useState(false);
@@ -748,7 +784,15 @@ function DownloadButton({
   async function download() {
     setBusy(true);
     try {
-      const blob = await pdf(doc(await loadLogo())).toBlob();
+      const [logo, qr] = await Promise.all([
+        loadLogo(),
+        qrFor
+          ? QRCode.toDataURL(qrFor, { margin: 1, width: 360, color: { dark: NAVY_DEEP } }).catch(
+              () => null
+            )
+          : Promise.resolve(null),
+      ]);
+      const blob = await pdf(doc({ logo, qr })).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -786,7 +830,8 @@ export function InvoiceButton({
     <DownloadButton
       label="Invoice"
       filename={`invoice-${data.invoiceNo}.pdf`}
-      doc={(logo) => <InvoiceDoc data={data} logo={logo} />}
+      doc={({ logo, qr }) => <InvoiceDoc data={data} logo={logo} qr={qr} />}
+      qrFor={data.status === "PAID" ? null : data.payUrl}
       className={className}
     />
   );
@@ -803,7 +848,7 @@ export function ReceiptButton({
     <DownloadButton
       label="Receipt"
       filename={`receipt-${data.receiptNo}.pdf`}
-      doc={(logo) => <ReceiptDoc data={data} logo={logo} />}
+      doc={({ logo }) => <ReceiptDoc data={data} logo={logo} />}
       className={className}
     />
   );

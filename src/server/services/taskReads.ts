@@ -3,6 +3,7 @@ import { paidAmount } from "@/lib/billing";
 import { getBusinessTimezone } from "@/lib/schedule";
 import { addZonedDays, zonedDayKey } from "@/lib/timezone";
 import { assertRole, type Actor } from "@/server/actor";
+import { payUrlFor } from "@/server/payments/stripe";
 import { iso, requiredIso, requiredMoney } from "@/server/serialize";
 import { ok, type ServiceResult } from "@/server/result";
 import type {
@@ -233,6 +234,8 @@ export type CalendarTaskRow = {
     status: PaymentStatusValue;
     method: PaymentMethodValue | null;
     paidAt: string | null;
+    /** Customer pay link while something is owed and online payment is set up. */
+    payUrl: string | null;
   } | null;
 };
 
@@ -305,6 +308,8 @@ export async function listCalendarTasks(
                 status: t.bill.status as PaymentStatusValue,
                 method: t.bill.method as PaymentMethodValue | null,
                 paidAt: iso(t.bill.paidAt),
+                payUrl:
+                  billAmount - billPaid > 0.005 ? payUrlFor(t.bill.payToken) : null,
               }
             : null,
       };

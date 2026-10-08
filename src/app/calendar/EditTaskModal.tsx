@@ -12,6 +12,7 @@ import MaterialUsageFields, {
   type MaterialOption,
 } from "@/components/MaterialUsageFields";
 import AddressMap from "@/components/AddressMap";
+import PayLinkActions from "@/components/PayLinkActions";
 import { Modal } from "@/components/Modal";
 import { useActionToast } from "@/components/Toast";
 import { inputClass, selectClass, labelClass, btnGhost, btnDanger } from "@/components/styles";
@@ -196,6 +197,13 @@ export default function EditTaskModal({
                   </span>
                 )}
               </div>
+
+              {bill.payUrl && (
+                <div className="flex flex-wrap items-center gap-2 rounded-xl bg-surface px-3 py-2">
+                  <span className="mr-auto text-sm text-muted">Customer paying by card?</span>
+                  <PayLinkActions payUrl={bill.payUrl} />
+                </div>
+              )}
 
               <PaymentFields balance={bill.balance} />
 

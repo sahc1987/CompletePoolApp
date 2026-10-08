@@ -118,11 +118,35 @@ export type PaymentInput = {
   billingAddress?: string | null;
   note?: string | null;
   userId?: string;
+  /**
+   * Set when the money came in through Stripe. That money has already been
+   * taken from the customer, so it is recorded even if it overpays the bill
+   * (the office logged a cash payment while the customer was checking out) —
+   * refusing it would make it vanish from the books. The overpayment is
+   * reported back so someone can refund it.
+   */
+  stripePaymentIntentId?: string;
+};
+
+export type PaymentResult = {
+  error?: string;
+  /** Stripe already reported this payment; nothing was written. */
+  duplicate?: boolean;
+  /** How much a Stripe payment went over the balance, if it did. */
+  overpaidBy?: number;
 };
 
 // Record money against a bill. Supports partial payments: the bill lands on
 // PARTIAL until the balance reaches zero, then PAID.
-export async function recordPayment(input: PaymentInput): Promise<{ error?: string }> {
+export async function recordPayment(input: PaymentInput): Promise<PaymentResult> {
+  const fromStripe = !!input.stripePaymentIntentId;
+  if (fromStripe) {
+    const seen = await prisma.payment.findUnique({
+      where: { stripePaymentIntentId: input.stripePaymentIntentId },
+    });
+    if (seen) return { duplicate: true };
+  }
+
   const bill = await prisma.bill.findUnique({
     where: { id: input.billId },
     include: { payments: true },
@@ -133,10 +157,12 @@ export async function recordPayment(input: PaymentInput): Promise<{ error?: stri
   const already = paidAmount(bill.payments);
   const balance = round2(total - already);
 
-  if (balance <= 0) return { error: "This bill is already paid in full." };
   if (!(input.amount > 0)) return { error: "Payment must be more than $0." };
-  if (input.amount - balance > EPS) {
-    return { error: `Payment can't exceed the $${balance.toFixed(2)} balance.` };
+  if (!fromStripe) {
+    if (balance <= 0) return { error: "This bill is already paid in full." };
+    if (input.amount - balance > EPS) {
+      return { error: `Payment can't exceed the $${balance.toFixed(2)} balance.` };
+    }
   }
   if (input.method === "CHECK" && !input.checkNumber?.trim()) {
     return { error: "Enter the check number." };
@@ -148,29 +174,46 @@ export async function recordPayment(input: PaymentInput): Promise<{ error?: stri
   const now = new Date();
   const settled = round2(already + input.amount) >= total - EPS;
 
-  await prisma.$transaction([
-    prisma.payment.create({
-      data: {
-        billId: bill.id,
-        amount: input.amount,
-        method: input.method,
-        checkNumber: input.method === "CHECK" ? input.checkNumber!.trim() : null,
-        billingAddress: input.method === "ONLINE" ? input.billingAddress!.trim() : null,
-        note: input.note?.trim() || null,
-        paidAt: now,
-        recordedById: input.userId ?? null,
-      },
-    }),
-    prisma.bill.update({
-      where: { id: bill.id },
-      data: {
-        status: settled ? "PAID" : "PARTIAL",
-        method: input.method,
-        paidAt: settled ? now : null,
-      },
-    }),
-  ]);
-  return {};
+  try {
+    await prisma.$transaction([
+      prisma.payment.create({
+        data: {
+          billId: bill.id,
+          amount: input.amount,
+          method: input.method,
+          checkNumber: input.method === "CHECK" ? input.checkNumber!.trim() : null,
+          billingAddress: input.method === "ONLINE" ? input.billingAddress!.trim() : null,
+          note: input.note?.trim() || null,
+          paidAt: now,
+          recordedById: input.userId ?? null,
+          stripePaymentIntentId: input.stripePaymentIntentId ?? null,
+        },
+      }),
+      prisma.bill.update({
+        where: { id: bill.id },
+        data: {
+          status: settled ? "PAID" : "PARTIAL",
+          method: input.method,
+          // An already-settled bill keeps the date it was settled.
+          paidAt: settled ? bill.paidAt ?? now : null,
+        },
+      }),
+    ]);
+  } catch (e) {
+    // Two reports of the same Stripe payment arriving at once: the unique
+    // index let exactly one through.
+    if (
+      fromStripe &&
+      e instanceof Prisma.PrismaClientKnownRequestError &&
+      e.code === "P2002"
+    ) {
+      return { duplicate: true };
+    }
+    throw e;
+  }
+
+  const over = round2(input.amount - balance);
+  return over > EPS ? { overpaidBy: over } : {};
 }
 
 // Bills settled before the Payment table existed carry status=PAID but have

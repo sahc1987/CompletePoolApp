@@ -22,6 +22,7 @@ export type CalendarBill = {
   status: "PENDING" | "PARTIAL" | "PAID";
   method: "CASH" | "CHECK" | "ONLINE" | null;
   paidAt: string | null;
+  payUrl: string | null;
 };
 
 export type CalendarTask = {

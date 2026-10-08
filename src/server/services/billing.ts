@@ -5,6 +5,7 @@ import {
   resetBillPayments,
 } from "@/lib/billing";
 import { assertRole, type Actor } from "@/server/actor";
+import { expireOpenCheckout } from "./onlinePayments";
 import {
   badState,
   invalid,
@@ -48,6 +49,9 @@ export async function payBill(
   const parsed = payBillSchema.safeParse(input);
   if (!parsed.success) return invalid(parsed.error.errors[0].message);
 
+  // Close any online checkout first, so the customer can't also pay the old
+  // balance while this is being written.
+  await expireOpenCheckout(parsed.data.billId);
   const res = await recordPayment({ ...parsed.data, userId: actor.id });
   if (res.error) return classify(res.error);
   return ok();
@@ -105,6 +109,7 @@ export async function chargeTask(
     (await createBillForTask(taskId));
   if (!bill) return badState("No bill for this job yet.");
 
+  await expireOpenCheckout(bill.id);
   const res = await recordPayment({
     billId: bill.id,
     ...payment,

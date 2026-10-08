@@ -16,6 +16,7 @@ import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
 import UndoForm from "./UndoForm";
 import { InvoiceButton, type InvoiceData, type ReceiptData } from "./BillingPdf";
+import PayLinkActions from "@/components/PayLinkActions";
 import { getCompanyInfo } from "@/lib/company";
 import { requirePageSession } from "@/lib/guard";
 import { getBusinessTimezone } from "@/lib/schedule";
@@ -204,6 +205,7 @@ export default async function BillingPage({
       lineItems,
       subtotal,
       taxes,
+      payUrl: b.payUrl,
       total: amount,
       paid,
       balance,
@@ -768,6 +770,7 @@ export default async function BillingPage({
 
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <InvoiceButton data={invoice} />
+                  {isAdmin && <PayLinkActions payUrl={b.payUrl} compact />}
                   {(row.periodPayments.length > 0 || row.periodReversals.length > 0) && (
                     <PaymentsButton
                       clientName={b.task.client.name}
@@ -894,6 +897,7 @@ export default async function BillingPage({
                       {isAdmin ? (
                         <div className="flex items-center justify-end gap-1.5">
                           <InvoiceButton data={invoice} />
+                          <PayLinkActions payUrl={b.payUrl} compact />
                           {balance > 0 && (
                             <PayForm
                               billId={b.id}
