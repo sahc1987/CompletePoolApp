@@ -176,6 +176,10 @@ async function send(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   const onCallerAbort = () => controller.abort();
+  // Cancelled before the request even went out (the screen was left while the
+  // session was still being read): the abort event has already fired, so a
+  // listener added now would never hear it.
+  if (opts.signal?.aborted) controller.abort();
   opts.signal?.addEventListener("abort", onCallerAbort);
   try {
     return await fetch(`${apiBase()}${path}`, {

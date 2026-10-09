@@ -2,6 +2,7 @@ import type {
   CreateMaterialRequestInput,
   MaterialUsageInput,
 } from "@contracts/worker";
+import type { CreateTaskInput, EditTaskInput } from "@contracts/scheduling";
 import type {
   AddLineItemInput,
   CreateEstimateInput,
@@ -105,6 +106,92 @@ export const tasks = {
   start: (taskId: string) => api.post<void>(`/tasks/${taskId}/start`),
   submit: (taskId: string, usage: MaterialUsageInput[]) =>
     api.post<void>(`/tasks/${taskId}/submit`, { usage }),
+
+  // --- Admin ---------------------------------------------------------------
+  /** Jobs submitted and waiting on an admin's approve/flag. */
+  reviewQueue: () => api.get<TaskListResponse<ReviewTask>>("/tasks?view=review"),
+  create: (input: CreateTaskInput) => api.post<{ id: string }>("/tasks", input),
+  edit: (taskId: string, input: Omit<EditTaskInput, "taskId">) =>
+    api.patch<void>(`/tasks/${taskId}`, input),
+  approve: (taskId: string) => api.post<void>(`/tasks/${taskId}/approve`),
+  flag: (taskId: string, reason: string) => api.post<void>(`/tasks/${taskId}/flag`, { reason }),
+  /** `override` is required when the worker never submitted the job. */
+  finish: (taskId: string, usage: MaterialUsageInput[], override: boolean) =>
+    api.post<void>(`/tasks/${taskId}/finish`, { usage, override }),
+  cancel: (taskId: string) => api.post<void>(`/tasks/${taskId}/cancel`),
+  endSeries: (taskId: string) =>
+    api.post<{ cancelled: number }>(`/tasks/${taskId}/end-series`),
+};
+
+export type ReviewTask = WorkerTask & {
+  workerName: string;
+  photoCount: number;
+  extras: { id: string; name: string; price: number }[];
+  materials: { materialId: string; name: string; unit: string; quantityUsed: number; customerPrice: number }[];
+};
+
+export type AgendaTask = {
+  id: string;
+  dayKey: string;
+  start: string;
+  /** Already formatted in the business's zone. */
+  timeLabel: string;
+  endLabel: string;
+  /** Business-local "HH:MM" — what the edit form sends back. */
+  time: string;
+  durationMin: number;
+  status: TaskStatusValue;
+  clientName: string;
+  poolAddress: string;
+  serviceId: string;
+  serviceName: string;
+  workerId: string;
+  workerName: string;
+  notes: string | null;
+  flagReason: string | null;
+  /** Null for workers. */
+  price: number | null;
+  recurring: boolean;
+  extras: string[];
+  materialsUsed: { materialId: string; name: string; unit: string; quantityUsed: number }[];
+  /** Admins only. */
+  bill: {
+    amount: number;
+    paid: number;
+    balance: number;
+    status: "PENDING" | "PARTIAL" | "PAID";
+    method: "CASH" | "CHECK" | "ONLINE" | null;
+  } | null;
+};
+
+export type Agenda = {
+  day: string;
+  dayLabel: string;
+  today: string;
+  prevWeek: string;
+  nextWeek: string;
+  week: { day: string; weekday: string; dateNum: string; count: number }[];
+  tasks: AgendaTask[];
+  hours: { startMin: number; endMin: number };
+};
+
+export const agenda = {
+  /** Omit `day` for today, as the business counts it. */
+  get: (day?: string) =>
+    api.get<Agenda>(day ? `/agenda?day=${encodeURIComponent(day)}` : "/agenda"),
+};
+
+export type SchedulingCatalog = {
+  clients: { id: string; name: string; pools: { id: string; address: string }[] }[];
+  workers: { id: string; name: string }[];
+  services: { id: string; name: string; basePrice: number; defaultDurationMin: number }[];
+  extras: { id: string; name: string; price: number }[];
+  hours: { startMin: number; endMin: number; timezone: string };
+  hasClientsWithPools: boolean;
+};
+
+export const scheduling = {
+  catalog: () => api.get<SchedulingCatalog>("/scheduling/catalog"),
 };
 
 export const materials = {

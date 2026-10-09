@@ -1,5 +1,7 @@
 import { requireApi } from "@/server/api/auth";
-import { apiError, apiOk, handle, serviceError } from "@/server/api/respond";
+import { apiError, apiOk, handle, parseBody, respond, serviceError } from "@/server/api/respond";
+import { createTaskSchema } from "@/contracts/scheduling";
+import { createTask } from "@/server/services/scheduling";
 import {
   getBusinessDay,
   listCalendarTasks,
@@ -49,4 +51,23 @@ export const GET = handle(async (req) => {
   if (!tasks.ok) return serviceError(tasks);
 
   return apiOk({ tasks: tasks.data, businessDay: await getBusinessDay() });
+});
+
+/**
+ * POST /api/v1/tasks
+ *
+ * Admin: schedule a new job — the same `createTask` the web assign page uses,
+ * so business hours, double-booking, extras pricing and recurrence all behave
+ * identically. Body follows `createTaskSchema`: `date` (`YYYY-MM-DD`) and
+ * `time` (`HH:MM`) are business-local wall clock, never device time.
+ * Returns { id }.
+ */
+export const POST = handle(async (req) => {
+  const auth = await requireApi(req, { roles: ["ADMIN"], fresh: true });
+  if (!auth.ok) return auth.response;
+
+  const body = await parseBody(req, createTaskSchema);
+  if (!body.ok) return body.response;
+
+  return respond(await createTask(auth.actor, body.data), 201);
 });

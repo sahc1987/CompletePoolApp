@@ -7,8 +7,14 @@ log the material it used, and submit it for review. Workers can also request
 materials, and build estimates on site — line items, taxes, presenting, and
 the customer's signature on the phone (`react-native-signature-canvas`, which
 draws in a `react-native-webview` and returns the same PNG data URL the web pad
-does). Scheduling, clients and billing are still web-only — an admin or owner
-who signs in is told so rather than dropped into an empty app.
+does).
+
+Admins and owners get their own side of the app (`app/(manager)`): a
+dashboard, the team schedule (week strip + day list; admins create, edit,
+reschedule, finish, cancel and end repeating jobs), the review queue with
+photos (admins approve or flag), and every worker's route on the map. The
+owner sees it read-only, as on the web. Clients, billing, materials, team and
+settings are still web-only (plan phases 5 and 7).
 
 ## Running it
 

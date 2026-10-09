@@ -6,15 +6,22 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError } from "@/api/client";
 import { dayRoute as dayRouteApi, type DayRoute } from "@/api/endpoints";
 import { directionsForDay, directionsTo } from "@/features/map/directions";
-import { Button, ErrorNotice, Icon, Loading, StatusBadge } from "@/ui/components";
+import { Button, Chip, ErrorNotice, Icon, Loading, StatusBadge } from "@/ui/components";
 import { color, radius, shadow, space, type } from "@/ui/theme";
 
 /**
- * The worker's day on a map: numbered pins in visit order, a dashed line
- * through them, and the stops listed in a panel underneath. The server says
+ * A day on a map: numbered pins in visit order, a dashed line through each
+ * worker's stops, and the stops listed in a panel underneath. The server says
  * which day is today and what the neighbouring days are, so the phone never
  * works a date out itself.
+ *
+ * Shared by both sides of the app. A worker sees their own route. Managers
+ * see every worker's, one color each, with chips to focus on one worker —
+ * which is also when whole-route directions make sense.
  */
+
+// One color per worker, readable under white numbers; order of first stop.
+const WORKER_COLORS = ["#1a56db", "#0e7490", "#b45309", "#6d28d9", "#be123c", "#15803d", "#c2410c", "#334155"];
 
 // Long Island, until the day's pins arrive and the map fits to them.
 const FALLBACK_REGION = {
@@ -26,8 +33,17 @@ const FALLBACK_REGION = {
 
 const DONE = new Set(["SUBMITTED", "APPROVED"]);
 
-export default function MapScreen() {
+export function DayMapScreen({
+  byWorker = false,
+  jobHref,
+}: {
+  /** Managers: color by worker, with a worker filter. */
+  byWorker?: boolean;
+  /** Where a long-press on a stop opens the job. */
+  jobHref: (taskId: string, day: string) => string;
+}) {
   const router = useRouter();
+  const [workerFilter, setWorkerFilter] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
   const mapRef = useRef<MapView>(null);
   const [route, setRoute] = useState<DayRoute | null>(null);
@@ -55,7 +71,10 @@ export default function MapScreen() {
     }, [load])
   );
 
-  const stops = route?.stops ?? [];
+  const stops = (route?.stops ?? []).filter((s) => !workerFilter || s.workerId === workerFilter);
+  const workerIndex = new Map((route?.workers ?? []).map((w, i) => [w.id, i]));
+  const colorFor = (workerId: string) =>
+    byWorker ? WORKER_COLORS[(workerIndex.get(workerId) ?? 0) % WORKER_COLORS.length]! : color.navy700;
   const placed = stops.filter((s) => s.lat !== null && s.lng !== null);
   const coords = placed.map((s) => ({ latitude: s.lat!, longitude: s.lng! }));
 
@@ -83,7 +102,14 @@ export default function MapScreen() {
     }
   };
 
-  const dayDirections = directionsForDay(stops);
+  // A whole-day route is one person's: the worker's own, or a filtered worker's.
+  const dayDirections = !byWorker || workerFilter ? directionsForDay(stops) : null;
+
+  // One dashed line per worker, through their stops in order.
+  const lines = new Map<string, { latitude: number; longitude: number }[]>();
+  for (const s of placed) {
+    lines.set(s.workerId, [...(lines.get(s.workerId) ?? []), { latitude: s.lat!, longitude: s.lng! }]);
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: color.surface }}>
@@ -94,13 +120,16 @@ export default function MapScreen() {
         showsUserLocation={false}
         toolbarEnabled={false}
       >
-        {coords.length > 1 && (
-          <Polyline
-            coordinates={coords}
-            strokeColor={color.navy700}
-            strokeWidth={3}
-            lineDashPattern={[8, 8]}
-          />
+        {[...lines.entries()].map(([workerId, path]) =>
+          path.length > 1 ? (
+            <Polyline
+              key={workerId}
+              coordinates={path}
+              strokeColor={colorFor(workerId)}
+              strokeWidth={3}
+              lineDashPattern={[8, 8]}
+            />
+          ) : null
         )}
         {placed.map((s) => (
           <Marker
@@ -113,6 +142,7 @@ export default function MapScreen() {
             <View
               style={[
                 st.pin,
+                { backgroundColor: colorFor(s.workerId) },
                 DONE.has(s.status) && st.pinDone,
                 selected === s.taskId && st.pinSelected,
               ]}
@@ -167,6 +197,22 @@ export default function MapScreen() {
           {loading && <Text style={st.sheetMeta}>Updating…</Text>}
         </View>
 
+        {byWorker && route && route.workers.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: space.sm }}>
+            <View style={{ flexDirection: "row", gap: space.sm }}>
+              <Chip label="All" selected={!workerFilter} onPress={() => setWorkerFilter(null)} />
+              {route.workers.map((w) => (
+                <Chip
+                  key={w.id}
+                  label={w.name}
+                  selected={workerFilter === w.id}
+                  onPress={() => setWorkerFilter(w.id)}
+                />
+              ))}
+            </View>
+          </ScrollView>
+        )}
+
         {!!error && <ErrorNotice message={error} onRetry={() => load(route?.day)} />}
         {!error && !loading && stops.length === 0 && (
           <Text style={st.empty}>No jobs on this day.</Text>
@@ -178,10 +224,10 @@ export default function MapScreen() {
             <Pressable
               key={s.taskId}
               onPress={() => (s.lat !== null ? focus(s.taskId) : undefined)}
-              onLongPress={() => router.push(`/(worker)/task/${s.taskId}`)}
+              onLongPress={() => route && router.push(jobHref(s.taskId, route.day) as never)}
               style={[st.stop, selected === s.taskId && { backgroundColor: color.chrome100 }]}
             >
-              <View style={[st.num, DONE.has(s.status) && st.pinDone]}>
+              <View style={[st.num, { backgroundColor: colorFor(s.workerId) }, DONE.has(s.status) && st.pinDone]}>
                 <Text style={st.numText}>{s.order}</Text>
               </View>
               <View style={{ flex: 1 }}>
@@ -190,6 +236,7 @@ export default function MapScreen() {
                 </Text>
                 <Text style={st.stopMeta} numberOfLines={1}>
                   {s.timeLabel} · {s.serviceName}
+                  {byWorker ? ` · ${s.workerName}` : ""}
                 </Text>
                 <Text style={st.stopAddr} numberOfLines={1}>
                   {s.lat === null ? "Location not found · " : ""}
@@ -213,7 +260,7 @@ export default function MapScreen() {
 
         {dayDirections && (
           <Button
-            title="Directions for my day"
+            title={byWorker ? "Directions for this route" : "Directions for my day"}
             onPress={() => Linking.openURL(dayDirections)}
             style={{ marginTop: space.sm }}
           />

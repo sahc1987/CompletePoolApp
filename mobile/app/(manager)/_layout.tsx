@@ -6,11 +6,13 @@ import { Icon, Loading, Screen, type IconName } from "@/ui/components";
 import { color, radius, shadow } from "@/ui/theme";
 
 /**
- * The worker's tabs, in a floating rounded bar.
+ * The admin and owner side of the app, in the same floating tab bar as the
+ * worker's.
  *
- * The role check here is convenience, not security — every request is
- * authorized server-side regardless of which screen made it. What it buys is
- * not rendering a worker's UI to someone whose calls would all be refused.
+ * Admins run the day: schedule, new jobs, review. The owner sees the same
+ * schedule and map read-only, as on the web (where the owner can only change
+ * team accounts). Hiding a tab is convenience — every call is authorized on
+ * the server regardless.
  */
 
 const icon =
@@ -19,7 +21,7 @@ const icon =
     <Icon name={focused ? active : name} size={24} color={tint} />
   );
 
-export default function WorkerLayout() {
+export default function ManagerLayout() {
   const { status, user } = useAuth();
   const insets = useSafeAreaInsets();
 
@@ -31,7 +33,8 @@ export default function WorkerLayout() {
     );
   }
   if (status === "signedOut") return <Redirect href="/sign-in" />;
-  if (user.role !== "WORKER") return <Redirect href="/(manager)" />;
+  if (user.role === "WORKER") return <Redirect href="/(worker)" />;
+  const isAdmin = user.role === "ADMIN";
 
   return (
     <Tabs
@@ -43,7 +46,6 @@ export default function WorkerLayout() {
         tabBarActiveTintColor: color.teal700,
         tabBarInactiveTintColor: color.faint,
         tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
-        // Floats above the content with rounded ends, like the reference.
         tabBarStyle: {
           position: "absolute",
           marginHorizontal: 14,
@@ -63,30 +65,30 @@ export default function WorkerLayout() {
         options={{ title: "Home", headerShown: false, tabBarIcon: icon("home-outline", "home") }}
       />
       <Tabs.Screen
-        name="jobs"
-        options={{ title: "My jobs", tabBarIcon: icon("clipboard-outline", "clipboard") }}
+        name="schedule"
+        options={{ title: "Schedule", tabBarIcon: icon("calendar-outline", "calendar") }}
+      />
+      <Tabs.Screen
+        name="review"
+        options={{
+          title: "Review",
+          // Approving and flagging are admin work; the owner doesn't get the tab.
+          href: isAdmin ? undefined : null,
+          tabBarIcon: icon("checkmark-done-outline", "checkmark-done"),
+        }}
       />
       <Tabs.Screen
         name="map"
         options={{ title: "Map", headerShown: false, tabBarIcon: icon("map-outline", "map") }}
       />
       <Tabs.Screen
-        name="estimates/index"
-        options={{
-          title: "Estimates",
-          tabBarIcon: icon("document-text-outline", "document-text"),
-        }}
-      />
-      <Tabs.Screen
         name="account"
         options={{ title: "Account", tabBarIcon: icon("person-outline", "person") }}
       />
       {/* Detail screens push over the tabs rather than appearing in the bar. */}
-      <Tabs.Screen name="task/[id]" options={{ href: null, title: "Job" }} />
-      <Tabs.Screen name="materials" options={{ href: null, title: "Request materials" }} />
-      <Tabs.Screen name="estimates/new" options={{ href: null, title: "New estimate" }} />
-      <Tabs.Screen name="estimates/[id]" options={{ href: null, title: "Estimate" }} />
-      <Tabs.Screen name="estimates/sign/[id]" options={{ href: null, title: "Client signature" }} />
+      <Tabs.Screen name="job/[id]" options={{ href: null, title: "Job" }} />
+      <Tabs.Screen name="job/form" options={{ href: null, title: "Job" }} />
+      <Tabs.Screen name="review/[id]" options={{ href: null, title: "Review job" }} />
     </Tabs>
   );
 }

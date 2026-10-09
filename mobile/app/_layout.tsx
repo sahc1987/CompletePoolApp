@@ -20,10 +20,7 @@ export default function RootLayout() {
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="sign-in" options={{ headerShown: false }} />
           <Stack.Screen name="(worker)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="unsupported-role"
-            options={{ title: "Complete Pool" }}
-          />
+          <Stack.Screen name="(manager)" options={{ headerShown: false }} />
         </Stack>
       </AuthProvider>
     </SafeAreaProvider>

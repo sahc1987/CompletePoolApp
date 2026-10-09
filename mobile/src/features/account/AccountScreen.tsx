@@ -3,7 +3,8 @@ import { useAuth } from "@/auth/AuthContext";
 import { Avatar, Button, Card, Icon, Row, Screen, type IconName } from "@/ui/components";
 import { color, space, type } from "@/ui/theme";
 
-export default function Account() {
+/** Profile and sign-out, shared by every role. */
+export function AccountScreen() {
   const { user, signOut } = useAuth();
 
   const confirmSignOut = () =>
