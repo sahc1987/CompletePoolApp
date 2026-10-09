@@ -290,7 +290,7 @@ export function Hero({
 /** Initials in a circle — the signed-in person, top right of the header. */
 export function Avatar({ name, onPress }: { name: string; onPress?: () => void }) {
   const initials = name
-    .split(/s+/)
+    .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((w) => w[0]!.toUpperCase())

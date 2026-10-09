@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { File, Paths } from "expo-file-system";
 import { clearSession, readSession, writeSession } from "./storage";
 
 /**
@@ -236,6 +237,44 @@ export async function request<T>(
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+/**
+ * Download an authenticated file (an invoice or receipt PDF) into the cache
+ * and return its local URI, ready for the share sheet.
+ *
+ * The native downloader can't tell us *why* it failed, so an expired token
+ * looks like any other failure: it gets one retry with a fresh token, the same
+ * single-flight refresh `request()` uses. The file is overwritten each time —
+ * a balance changes, and a stale copy would print the old one.
+ */
+export async function downloadFile(path: string, filename: string): Promise<string> {
+  const target = new File(Paths.cache, filename);
+  const attempt = async (token: string | null) => {
+    const file = await File.downloadFileAsync(`${apiBase()}${path}`, target, {
+      headers: token ? { authorization: `Bearer ${token}` } : {},
+      idempotent: true,
+    });
+    return file.uri;
+  };
+
+  const session = await readSession();
+  try {
+    return await attempt(session?.accessToken ?? null);
+  } catch {
+    const fresh = await refreshAccessToken();
+    if (fresh) {
+      try {
+        return await attempt(fresh);
+      } catch {
+        // Fall through to the message below.
+      }
+    }
+    throw new ApiError(
+      "OFFLINE",
+      "Couldn't download the document. Check your signal and try again."
+    );
+  }
 }
 
 export const api = {

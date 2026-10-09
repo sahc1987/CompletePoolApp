@@ -25,6 +25,7 @@ export const poolFieldsSchema = z.object({
   size: optionalText,
   type: optionalText,
 });
+export type PoolFieldsInput = z.input<typeof poolFieldsSchema>;
 
 export const createPoolSchema = poolFieldsSchema.extend({
   clientId: z.string().min(1, "Missing client id"),

@@ -12,10 +12,13 @@ import type {
 import type {
   EstimateStatusValue,
   MaterialRequestStatusValue,
+  PaymentMethodValue,
   RoleValue,
   TaskStatusValue,
 } from "@contracts/enums";
-import { api } from "./client";
+import type { ClientFieldsInput, PoolFieldsInput } from "@contracts/clients";
+import type { PaymentDetailsInput } from "@contracts/billing";
+import { api, downloadFile } from "./client";
 
 /**
  * Every call the app makes, in one place.
@@ -347,5 +350,166 @@ export const notifications = {
   get: () =>
     api.get<{ unread: number; items: { id: string; message: string }[] }>(
       "/notifications"
+    ),
+};
+
+// ── Clients and pools (admin) ────────────────────────────────────────────────
+
+export type ClientListRow = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  poolCount: number;
+  taskCount: number;
+};
+
+export type ClientListPage = {
+  rows: ClientListRow[];
+  total: number;
+  totalUnfiltered: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+};
+
+export type PoolRow = {
+  id: string;
+  address: string;
+  size: string | null;
+  type: string | null;
+};
+
+export type ClientDetail = {
+  id: string;
+  name: string;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  notes: string | null;
+  createdAt: string;
+  pools: PoolRow[];
+  taskCount: number;
+  estimateCount: number;
+  /** False once any job or estimate references the client. */
+  deletable: boolean;
+};
+
+export const clients = {
+  list: (q: string, page = 1) =>
+    api.get<ClientListPage>(
+      `/clients?q=${encodeURIComponent(q)}&page=${page}&perPage=25`
+    ),
+  get: (id: string) => api.get<ClientDetail>(`/clients/${id}`),
+  create: (input: ClientFieldsInput) => api.post<{ id: string }>("/clients", input),
+  update: (id: string, input: ClientFieldsInput) =>
+    api.patch<void>(`/clients/${id}`, input),
+  remove: (id: string) => api.del<void>(`/clients/${id}`),
+  addPool: (clientId: string, input: PoolFieldsInput) =>
+    api.post<{ id: string }>(`/clients/${clientId}/pools`, input),
+};
+
+export const pools = {
+  update: (id: string, input: PoolFieldsInput) => api.patch<void>(`/pools/${id}`, input),
+  remove: (id: string) => api.del<void>(`/pools/${id}`),
+};
+
+// ── Billing (admin; the owner reads) ─────────────────────────────────────────
+
+export type BillStatus = "PENDING" | "PARTIAL" | "PAID";
+export type BillStatusFilter = "all" | "pending" | "partial" | "paid" | "open";
+
+export type BillPayment = {
+  id: string;
+  receiptNo: number;
+  amount: number;
+  method: PaymentMethodValue;
+  checkNumber: string | null;
+  billingAddress: string | null;
+  note: string | null;
+  paidAt: string;
+  recordedBy: string | null;
+  balanceAfter: number;
+};
+
+export type Bill = {
+  id: string;
+  invoiceNo: number;
+  status: BillStatus;
+  createdAt: string;
+  amount: number;
+  paid: number;
+  balance: number;
+  lineItems: { description: string; detail?: string; amount: number }[];
+  subtotal: number;
+  taxes: { name: string; ratePercent: number; amount: number }[];
+  /** The customer's online pay link while something is owed; else null. */
+  payUrl: string | null;
+  payments: BillPayment[];
+  reversals: {
+    id: string;
+    reason: string;
+    amountReversed: number;
+    paymentCount: number;
+    reversedBy: string | null;
+    createdAt: string;
+  }[];
+  task: {
+    id: string;
+    date: string;
+    serviceName: string;
+    poolAddress: string;
+    client: {
+      id: string;
+      name: string;
+      address: string | null;
+      phone: string | null;
+      email: string | null;
+    };
+  };
+};
+
+export type BillListPage = {
+  rows: Bill[];
+  counts: Record<BillStatusFilter, number>;
+  totals: { billed: number; collected: number; outstanding: number };
+  page: number;
+  perPage: number;
+  totalPages: number;
+  total: number;
+  /** The business timezone, for showing dates. */
+  timezone: string;
+};
+
+export type BillDetail = Bill & { timezone: string };
+
+export const invoiceNumber = (n: number) => `INV-${String(n).padStart(6, "0")}`;
+export const receiptNumber = (n: number) => `RCP-${String(n).padStart(6, "0")}`;
+
+export const bills = {
+  list: (
+    opts: { status?: BillStatusFilter; clientId?: string; page?: number; perPage?: number } = {}
+  ) => {
+    const q = new URLSearchParams();
+    if (opts.status) q.set("status", opts.status);
+    if (opts.clientId) q.set("clientId", opts.clientId);
+    if (opts.page) q.set("page", String(opts.page));
+    if (opts.perPage) q.set("perPage", String(opts.perPage));
+    const qs = q.toString();
+    return api.get<BillListPage>(qs ? `/bills?${qs}` : "/bills");
+  },
+  get: (id: string) => api.get<BillDetail>(`/bills/${id}`),
+  pay: (id: string, input: PaymentDetailsInput) =>
+    api.post<void>(`/bills/${id}/payments`, input),
+  reverse: (id: string, reason: string) =>
+    api.post<void>(`/bills/${id}/reverse`, { reason }),
+  /** Downloads the PDF and returns its local URI. */
+  invoicePdf: (bill: Pick<Bill, "id" | "invoiceNo">) =>
+    downloadFile(`/bills/${bill.id}/invoice`, `invoice-${invoiceNumber(bill.invoiceNo)}.pdf`),
+  receiptPdf: (billId: string, payment: Pick<BillPayment, "id" | "receiptNo">) =>
+    downloadFile(
+      `/bills/${billId}/receipts/${payment.id}`,
+      `receipt-${receiptNumber(payment.receiptNo)}.pdf`
     ),
 };

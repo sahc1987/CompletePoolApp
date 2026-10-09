@@ -11,7 +11,9 @@ import { color, radius, shadow } from "@/ui/theme";
  *
  * Admins run the day: schedule, new jobs, review. The owner sees the same
  * schedule and map read-only, as on the web (where the owner can only change
- * team accounts). Hiding a tab is convenience — every call is authorized on
+ * team accounts). Clients and billing open from the dashboard tiles rather
+ * than the bar, which has no room for them; clients are admin-only, as on the
+ * web, and billing is read-only for the owner. Hiding a tab is convenience — every call is authorized on
  * the server regardless.
  */
 
@@ -89,6 +91,13 @@ export default function ManagerLayout() {
       <Tabs.Screen name="job/[id]" options={{ href: null, title: "Job" }} />
       <Tabs.Screen name="job/form" options={{ href: null, title: "Job" }} />
       <Tabs.Screen name="review/[id]" options={{ href: null, title: "Review job" }} />
+      <Tabs.Screen name="clients/index" options={{ href: null, title: "Clients" }} />
+      <Tabs.Screen name="clients/[id]" options={{ href: null, title: "Client" }} />
+      <Tabs.Screen name="clients/form" options={{ href: null, title: "Client" }} />
+      <Tabs.Screen name="clients/pool" options={{ href: null, title: "Pool" }} />
+      <Tabs.Screen name="billing/index" options={{ href: null, title: "Billing" }} />
+      <Tabs.Screen name="billing/[id]" options={{ href: null, title: "Bill" }} />
+      <Tabs.Screen name="billing/pay" options={{ href: null, title: "Record payment" }} />
     </Tabs>
   );
 }

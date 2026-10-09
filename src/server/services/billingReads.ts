@@ -7,6 +7,7 @@ import {
   type BillTaxLine,
   type InvoiceLine,
 } from "@/lib/billing";
+import { getBusinessTimezone } from "@/lib/schedule";
 import { assertRole, type Actor } from "@/server/actor";
 import { payUrlFor } from "@/server/payments/stripe";
 import { requiredIso, requiredMoney } from "@/server/serialize";
@@ -223,6 +224,77 @@ export async function listBills(
     orderBy: { createdAt: "desc" },
   });
   return ok(bills.map(toRow));
+}
+
+export type BillStatusFilter = "all" | "pending" | "partial" | "paid" | "open";
+
+export type BillListPage = {
+  rows: BillRow[];
+  /** Per tab, within the client filter, so the tabs can show their sizes. */
+  counts: Record<BillStatusFilter, number>;
+  /** Across every bill in the client filter, whatever the tab. */
+  totals: { billed: number; collected: number; outstanding: number };
+  page: number;
+  perPage: number;
+  totalPages: number;
+  /** Rows matching the tab — what the pages divide up. */
+  total: number;
+  /** The business's zone, so a phone shows dates as the business counts them. */
+  timezone: string;
+};
+
+const matchesStatus = (b: BillRow, status: BillStatusFilter) =>
+  status === "all"
+    ? true
+    : status === "open"
+      ? b.balance > 0
+      : b.status.toLowerCase() === status;
+
+/**
+ * One page of bills for the API, newest first: an optional client, a status
+ * tab ("open" is anything with a balance — pending and partial together, which
+ * is the list a person collecting money actually wants), and the totals the
+ * web page shows above its table. Date ranges stay on the web.
+ */
+export async function listBillsPage(
+  actor: Actor,
+  opts: { status?: BillStatusFilter; clientId?: string; page?: number; perPage?: number } = {}
+): Promise<ServiceResult<BillListPage>> {
+  const [all, timezone] = await Promise.all([listBills(actor), getBusinessTimezone()]);
+  if (!all.ok) return all;
+
+  const scoped = opts.clientId
+    ? all.data.filter((b) => b.task.client.id === opts.clientId)
+    : all.data;
+  const status = opts.status ?? "all";
+  const matching = scoped.filter((b) => matchesStatus(b, status));
+
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const counts = Object.fromEntries(
+    (["all", "pending", "partial", "paid", "open"] as const).map((k) => [
+      k,
+      scoped.filter((b) => matchesStatus(b, k)).length,
+    ])
+  ) as Record<BillStatusFilter, number>;
+
+  const perPage = Math.min(100, Math.max(1, opts.perPage ?? 25));
+  const totalPages = Math.max(1, Math.ceil(matching.length / perPage));
+  const page = Math.min(Math.max(1, opts.page ?? 1), totalPages);
+
+  return ok({
+    rows: matching.slice((page - 1) * perPage, page * perPage),
+    counts,
+    totals: {
+      billed: round(scoped.reduce((s, b) => s + b.amount, 0)),
+      collected: round(scoped.reduce((s, b) => s + b.paid, 0)),
+      outstanding: round(scoped.reduce((s, b) => s + Math.max(0, b.balance), 0)),
+    },
+    page,
+    perPage,
+    totalPages,
+    total: matching.length,
+    timezone,
+  });
 }
 
 /** One bill, for an invoice document or a detail screen. */

@@ -15,6 +15,7 @@ export const paymentDetailsSchema = z.object({
   billingAddress: optionalText,
   note: optionalText,
 });
+export type PaymentDetailsInput = z.input<typeof paymentDetailsSchema>;
 
 export const payBillSchema = paymentDetailsSchema.extend({
   billId: z.string().min(1, "Missing bill"),

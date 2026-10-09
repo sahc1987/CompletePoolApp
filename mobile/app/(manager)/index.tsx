@@ -3,15 +3,15 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthContext";
 import { ApiError } from "@/api/client";
-import { agenda as agendaApi, tasks as tasksApi, type Agenda } from "@/api/endpoints";
+import { agenda as agendaApi, bills as billsApi, tasks as tasksApi, type Agenda } from "@/api/endpoints";
 import { Avatar, ErrorNotice, Hero, Screen, StatusBadge, Tile } from "@/ui/components";
-import { color, radius, shadow, space, type } from "@/ui/theme";
+import { color, radius, shadow, space, type, usd } from "@/ui/theme";
 
 const DONE = new Set(["SUBMITTED", "APPROVED"]);
 
 /**
  * Home for admins and owners: today across the whole team, what's waiting on
- * review, and a tile per section. The owner's view is read-only, so the
+ * review, money owed, and a tile per section. The owner's view is read-only, so the
  * admin-only tiles (new job, review) aren't offered.
  */
 export default function ManagerHome() {
@@ -21,16 +21,20 @@ export default function ManagerHome() {
 
   const [today, setToday] = useState<Agenda | null>(null);
   const [reviewCount, setReviewCount] = useState<number | null>(null);
+  const [owed, setOwed] = useState<number | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [day, queue] = await Promise.all([
+      const [day, queue, open] = await Promise.all([
         agendaApi.get(),
         isAdmin ? tasksApi.reviewQueue() : Promise.resolve(null),
+        // Only the totals are used; one row keeps the response small.
+        billsApi.list({ status: "open", perPage: 1 }).catch(() => null),
       ]);
+      setOwed(open ? open.totals.outstanding : null);
       setToday(day);
       setReviewCount(queue ? queue.tasks.length : null);
       setError(null);
@@ -126,6 +130,22 @@ export default function ManagerHome() {
             onPress={() => router.push("/(manager)/review")}
           />
         )}
+        {isAdmin && (
+          <Tile
+            icon="people-outline"
+            label="Clients"
+            detail="Contacts & pools"
+            tone="clients"
+            onPress={() => router.push("/(manager)/clients")}
+          />
+        )}
+        <Tile
+          icon="cash-outline"
+          label="Billing"
+          detail={owed === null ? "Bills & payments" : owed > 0 ? `${usd(owed)} owed` : "Nothing owed"}
+          tone="billing"
+          onPress={() => router.push("/(manager)/billing")}
+        />
         <Tile
           icon="map-outline"
           label="Map"

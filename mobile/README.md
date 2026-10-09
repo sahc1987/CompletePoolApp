@@ -13,8 +13,15 @@ Admins and owners get their own side of the app (`app/(manager)`): a
 dashboard, the team schedule (week strip + day list; admins create, edit,
 reschedule, finish, cancel and end repeating jobs), the review queue with
 photos (admins approve or flag), and every worker's route on the map. The
-owner sees it read-only, as on the web. Clients, billing, materials, team and
-settings are still web-only (plan phases 5 and 7).
+owner sees it read-only, as on the web.
+
+Clients and billing open from the manager dashboard tiles:
+- **Clients** (admin only, as on the web): search, details, and adding or editing clients and pools.
+- **Billing**: bills by status; recording cash, check or card payments, full or partial; undoing payments with a reason; and sending the card pay link.
+- **Invoices and receipts** are rendered on the server from the same design the web uses (`src/lib/pdf/billingDocs.tsx`). They open in the share sheet via `expo-sharing`.
+- **The owner** reads billing and shares documents but can't move money.
+
+Materials, team and settings are still web-only (plan phase 7).
 
 ## Running it
 

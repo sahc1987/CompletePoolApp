@@ -108,6 +108,8 @@ export const tileTone = {
   map: { fg: "#6d28d9", bg: "#efe8fd" },
   account: { fg: "#334155", bg: "#e8edf4" },
   photos: { fg: "#be123c", bg: "#fde8ec" },
+  clients: { fg: "#0f766e", bg: "#dcf5ef" },
+  billing: { fg: "#15803d", bg: "#e3f6e8" },
 } as const;
 
 /**

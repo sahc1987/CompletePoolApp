@@ -9,13 +9,12 @@ import {
   backfillBills,
   backfillLegacyPayments,
   paidAmount,
-  invoiceNumber,
-  receiptNumber,
 } from "@/lib/billing";
 import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
 import UndoForm from "./UndoForm";
-import { InvoiceButton, type InvoiceData, type ReceiptData } from "./BillingPdf";
+import { InvoiceButton } from "./BillingPdf";
+import { invoiceDataFor, METHOD_LABEL, receiptDataFor } from "@/lib/pdf/billDocData";
 import PayLinkActions from "@/components/PayLinkActions";
 import { getCompanyInfo } from "@/lib/company";
 import { requirePageSession } from "@/lib/guard";
@@ -28,12 +27,6 @@ import {
   zonedMonthStart,
   zonedWeekStart,
 } from "@/lib/timezone";
-
-const METHOD_LABEL: Record<string, string> = {
-  CASH: "Cash",
-  CHECK: "Check",
-  ONLINE: "Online",
-};
 
 // "Pending" is not a warning — it's just not-yet. Amber here collided with
 // the gold CTA sitting in the same row.
@@ -187,54 +180,12 @@ export default async function BillingPage({
   const bills = billsResult.ok ? billsResult.data : [];
 
   const rows = bills.map((b) => {
-    const { amount, paid, balance, lineItems, subtotal, taxes } = b;
+    const { amount, paid, balance } = b;
 
-    const invoice: InvoiceData = {
-      invoiceNo: invoiceNumber(b.invoiceNo),
-      issuedAt: fmtDate(b.createdAt),
-      clientName: b.task.client.name,
-      // The bill goes to the client's billing address; the pool is where the
-      // work happened. They're often the same, and the document only prints
-      // the service location separately when it actually differs.
-      address: b.task.client.address ?? b.task.poolAddress,
-      serviceAddress: b.task.poolAddress,
-      clientPhone: b.task.client.phone,
-      clientEmail: b.task.client.email,
-      jobDate: fmtDate(b.task.date),
-      serviceName: b.task.serviceName,
-      lineItems,
-      subtotal,
-      taxes,
-      payUrl: b.payUrl,
-      total: amount,
-      paid,
-      balance,
-      status: b.status,
-      company,
-    };
-
+    const invoice = invoiceDataFor(b, company, tz);
     // The running balance behind each receipt is computed with the rest of the
     // money in the billing service, so this only dresses it for the document.
-    const receipts: ReceiptData[] = b.payments.map((p) => ({
-      receiptNo: receiptNumber(p.receiptNo),
-      invoiceNo: invoiceNumber(b.invoiceNo),
-      paidAt: fmtDate(p.paidAt),
-      clientName: b.task.client.name,
-      address: b.task.client.address ?? b.task.poolAddress,
-      serviceAddress: b.task.poolAddress,
-      clientPhone: b.task.client.phone,
-      clientEmail: b.task.client.email,
-      serviceName: b.task.serviceName,
-      jobDate: fmtDate(b.task.date),
-      amount: p.amount,
-      method: METHOD_LABEL[p.method] ?? p.method,
-      checkNumber: p.checkNumber,
-      balanceAfter: p.balanceAfter,
-      invoiceTotal: amount,
-      recordedBy: p.recordedBy,
-      note: p.note,
-      company,
-    }));
+    const receipts = b.payments.map((p) => receiptDataFor(b, p, company, tz));
 
     return { bill: b, amount, paid, balance, invoice, receipts };
   });
