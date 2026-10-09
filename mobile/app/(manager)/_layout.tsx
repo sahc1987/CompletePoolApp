@@ -12,8 +12,10 @@ import { color, radius, shadow } from "@/ui/theme";
  * Admins run the day: schedule, new jobs, review. The owner sees the same
  * schedule and map read-only, as on the web (where the owner can only change
  * team accounts). Clients and billing open from the dashboard tiles rather
- * than the bar, which has no room for them; clients are admin-only, as on the
- * web, and billing is read-only for the owner. Hiding a tab is convenience — every call is authorized on
+ * than the bar, which has no room for them — as do materials, team, settings
+ * and KPIs. Each follows the web: clients, materials and settings are
+ * admin-only, billing is read-only for the owner, the team is managed by both
+ * (by rank), and KPIs are the owner's. Hiding a tab is convenience — every call is authorized on
  * the server regardless.
  */
 
@@ -98,6 +100,15 @@ export default function ManagerLayout() {
       <Tabs.Screen name="billing/index" options={{ href: null, title: "Billing" }} />
       <Tabs.Screen name="billing/[id]" options={{ href: null, title: "Bill" }} />
       <Tabs.Screen name="billing/pay" options={{ href: null, title: "Record payment" }} />
+      <Tabs.Screen name="materials/index" options={{ href: null, title: "Materials" }} />
+      <Tabs.Screen name="materials/[id]" options={{ href: null, title: "Material" }} />
+      <Tabs.Screen name="materials/form" options={{ href: null, title: "Material" }} />
+      <Tabs.Screen name="team/index" options={{ href: null, title: "Team" }} />
+      <Tabs.Screen name="team/[id]" options={{ href: null, title: "Team member" }} />
+      <Tabs.Screen name="team/new" options={{ href: null, title: "Add person" }} />
+      <Tabs.Screen name="settings/index" options={{ href: null, title: "Settings" }} />
+      <Tabs.Screen name="settings/item" options={{ href: null, title: "Settings" }} />
+      <Tabs.Screen name="kpi" options={{ href: null, title: "Business numbers" }} />
     </Tabs>
   );
 }

@@ -18,6 +18,18 @@ import type {
 } from "@contracts/enums";
 import type { ClientFieldsInput, PoolFieldsInput } from "@contracts/clients";
 import type { PaymentDetailsInput } from "@contracts/billing";
+import type {
+  AdjustStockInput,
+  RespondMaterialRequestInput,
+  SaveMaterialInput,
+} from "@contracts/materials";
+import type { CreateUserInput, SaveEmploymentInput } from "@contracts/users";
+import type {
+  SaveExtraInput,
+  SaveServiceInput,
+  SaveTaxRateInput,
+  SaveWorkHoursInput,
+} from "@contracts/settings";
 import { api, downloadFile } from "./client";
 
 /**
@@ -512,4 +524,153 @@ export const bills = {
       `/bills/${billId}/receipts/${payment.id}`,
       `receipt-${receiptNumber(payment.receiptNo)}.pdf`
     ),
+};
+
+// ── Materials and stock (admin) ──────────────────────────────────────────────
+
+export type MaterialRow = MaterialOption & {
+  costPrice: number;
+  customerPrice: number;
+  quantityOnHand: number;
+  reorderThreshold: number;
+  active: boolean;
+  /** At or below the reorder threshold, and still in use. */
+  low: boolean;
+};
+
+export type PendingMaterialRequest = MaterialRequest & {
+  workerName: string | null;
+  /** The client whose job prompted it, when tied to one. */
+  taskClientName: string | null;
+};
+
+type MaterialFields = Omit<SaveMaterialInput, "id">;
+
+export const materialsAdmin = {
+  catalog: () => api.get<MaterialRow[]>("/materials/catalog"),
+  create: (input: MaterialFields) => api.post<{ id: string }>("/materials/catalog", input),
+  update: (id: string, input: MaterialFields) => api.patch<void>(`/materials/${id}`, input),
+  toggle: (id: string) => api.post<{ active: boolean }>(`/materials/${id}/toggle`),
+  adjustStock: (id: string, input: Omit<AdjustStockInput, "materialId">) =>
+    api.post<void>(`/materials/${id}/stock`, input),
+  pendingRequests: () => api.get<PendingMaterialRequest[]>("/material-requests/pending"),
+  respond: (id: string, input: Omit<RespondMaterialRequestInput, "requestId">) =>
+    api.post<void>(`/material-requests/${id}/respond`, input),
+};
+
+// ── Team (admin and owner) ───────────────────────────────────────────────────
+
+export type TeamMember = {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  role: RoleValue;
+  active: boolean;
+  hourlyRate: number | null;
+  hiredOn: string | null;
+  birthday: string | null;
+  assignedTaskCount: number;
+  isSelf: boolean;
+  administrable: boolean;
+  isLastManager: boolean;
+  /** No account control should be offered. */
+  locked: boolean;
+};
+
+export type TeamList = {
+  members: TeamMember[];
+  activeCount: number;
+  grantableRoles: RoleValue[];
+};
+
+export type TeamMemberDetail = TeamMember & {
+  createdAt: string;
+  payRateHistory: {
+    id: string;
+    oldRate: number | null;
+    newRate: number;
+    changedBy: string | null;
+    note: string | null;
+    createdAt: string;
+  }[];
+  weeks: { weekStart: string; jobs: number; minutes: number; hours: number; pay: number | null }[];
+  timezone: string;
+  totalMinutes: number;
+  totalPay: number;
+};
+
+export const team = {
+  list: () => api.get<TeamList>("/users"),
+  get: (id: string) => api.get<TeamMemberDetail>(`/users/${id}`),
+  create: (input: CreateUserInput) => api.post<{ id: string }>("/users", input),
+  setRole: (id: string, role: RoleValue) => api.post<void>(`/users/${id}/role`, { role }),
+  toggleActive: (id: string) => api.post<{ active: boolean }>(`/users/${id}/toggle-active`),
+  saveEmployment: (id: string, input: Omit<SaveEmploymentInput, "userId">) =>
+    api.put<void>(`/users/${id}/employment`, input),
+  resetPassword: (id: string, password: string) =>
+    api.post<void>(`/users/${id}/password`, { password }),
+};
+
+// ── Settings (admin) ─────────────────────────────────────────────────────────
+
+export type ServiceRow = { id: string; name: string; basePrice: number; defaultDurationMin: number };
+export type ExtraRow = { id: string; name: string; price: number };
+export type TaxRateRow = { id: string; name: string; rate: number; active: boolean };
+
+export type BusinessSettings = {
+  services: ServiceRow[];
+  extras: ExtraRow[];
+  taxRates: TaxRateRow[];
+  hours: { startMin: number; endMin: number; timezone: string };
+};
+
+export const settings = {
+  get: () => api.get<BusinessSettings>("/settings"),
+  saveHours: (input: SaveWorkHoursInput) => api.put<void>("/settings/hours", input),
+  createService: (input: Omit<SaveServiceInput, "id">) =>
+    api.post<{ id: string }>("/settings/services", input),
+  updateService: (id: string, input: Omit<SaveServiceInput, "id">) =>
+    api.patch<void>(`/settings/services/${id}`, input),
+  deleteService: (id: string) => api.del<void>(`/settings/services/${id}`),
+  createExtra: (input: Omit<SaveExtraInput, "id">) =>
+    api.post<{ id: string }>("/settings/extras", input),
+  updateExtra: (id: string, input: Omit<SaveExtraInput, "id">) =>
+    api.patch<void>(`/settings/extras/${id}`, input),
+  deleteExtra: (id: string) => api.del<void>(`/settings/extras/${id}`),
+  createTaxRate: (input: Omit<SaveTaxRateInput, "id">) =>
+    api.post<{ id: string }>("/settings/tax-rates", input),
+  updateTaxRate: (id: string, input: Omit<SaveTaxRateInput, "id">) =>
+    api.patch<void>(`/settings/tax-rates/${id}`, input),
+  toggleTaxRate: (id: string) => api.post<{ active: boolean }>(`/settings/tax-rates/${id}/toggle`),
+};
+
+// ── KPIs (owner) ─────────────────────────────────────────────────────────────
+
+export type KpiSummary = {
+  revenue: number;
+  margin: number;
+  marginPct: number;
+  materialCost: number;
+  materialBilled: number;
+  totalMinutes: number;
+  approvedJobs: number;
+  onTimeCount: number;
+  submittedCount: number;
+  onTimePct: number;
+  signedEstimateTotal: number;
+  signedEstimateCount: number;
+  workers: { id: string; name: string; revenue: number; jobs: number; minutes: number }[];
+  materials: {
+    materialId: string;
+    name: string;
+    unit: string;
+    qty: number;
+    cost: number;
+    billed: number;
+  }[];
+};
+
+export const kpi = {
+  get: () => api.get<KpiSummary>("/kpi"),
 };

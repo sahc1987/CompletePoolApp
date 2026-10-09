@@ -21,7 +21,13 @@ Clients and billing open from the manager dashboard tiles:
 - **Invoices and receipts** are rendered on the server from the same design the web uses (`src/lib/pdf/billingDocs.tsx`). They open in the share sheet via `expo-sharing`.
 - **The owner** reads billing and shares documents but can't move money.
 
-Materials, team and settings are still web-only (plan phase 7).
+More dashboard tiles, each with the same access as on the web:
+- **Materials** (admin): the crew's requests, which an admin approves or denies with a note; the stock list, with low stock flagged; restocks and adjustments, each logged; and adding, editing or retiring materials.
+- **Team** (admin and owner, only for accounts they outrank): add people, and change role, pay and dates. Disable accounts, which signs them out everywhere, and reset passwords. Each person also shows eight weeks of hours and pay.
+- **Settings** (admin): business hours and timezone, services, add-ons, and tax rates (switched on or off).
+- **Numbers** (owner): revenue, margin, on-time rate, signed estimates, and figures per worker and per material.
+
+The web has no screen for editing company identity, so the app doesn't either.
 
 ## Running it
 

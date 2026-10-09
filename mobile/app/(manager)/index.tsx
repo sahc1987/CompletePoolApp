@@ -3,7 +3,13 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native";
 import { useAuth } from "@/auth/AuthContext";
 import { ApiError } from "@/api/client";
-import { agenda as agendaApi, bills as billsApi, tasks as tasksApi, type Agenda } from "@/api/endpoints";
+import {
+  agenda as agendaApi,
+  bills as billsApi,
+  materialsAdmin,
+  tasks as tasksApi,
+  type Agenda,
+} from "@/api/endpoints";
 import { Avatar, ErrorNotice, Hero, Screen, StatusBadge, Tile } from "@/ui/components";
 import { color, radius, shadow, space, type, usd } from "@/ui/theme";
 
@@ -22,18 +28,21 @@ export default function ManagerHome() {
   const [today, setToday] = useState<Agenda | null>(null);
   const [reviewCount, setReviewCount] = useState<number | null>(null);
   const [owed, setOwed] = useState<number | null>(null);
+  const [requests, setRequests] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [day, queue, open] = await Promise.all([
+      const [day, queue, open, pending] = await Promise.all([
         agendaApi.get(),
         isAdmin ? tasksApi.reviewQueue() : Promise.resolve(null),
         // Only the totals are used; one row keeps the response small.
         billsApi.list({ status: "open", perPage: 1 }).catch(() => null),
+        isAdmin ? materialsAdmin.pendingRequests().catch(() => null) : Promise.resolve(null),
       ]);
+      setRequests(pending?.length ?? 0);
       setOwed(open ? open.totals.outstanding : null);
       setToday(day);
       setReviewCount(queue ? queue.tasks.length : null);
@@ -146,6 +155,40 @@ export default function ManagerHome() {
           tone="billing"
           onPress={() => router.push("/(manager)/billing")}
         />
+        {isAdmin && (
+          <Tile
+            icon="flask-outline"
+            label="Materials"
+            detail={requests ? `${requests} request${requests === 1 ? "" : "s"}` : "Stock & requests"}
+            tone="materials"
+            onPress={() => router.push("/(manager)/materials")}
+          />
+        )}
+        {!isAdmin && (
+          <Tile
+            icon="stats-chart-outline"
+            label="Numbers"
+            detail="Revenue & margin"
+            tone="kpi"
+            onPress={() => router.push("/(manager)/kpi")}
+          />
+        )}
+        <Tile
+          icon="people-circle-outline"
+          label="Team"
+          detail="People & pay"
+          tone="team"
+          onPress={() => router.push("/(manager)/team")}
+        />
+        {isAdmin && (
+          <Tile
+            icon="settings-outline"
+            label="Settings"
+            detail="Hours & catalog"
+            tone="settings"
+            onPress={() => router.push("/(manager)/settings")}
+          />
+        )}
         <Tile
           icon="map-outline"
           label="Map"

@@ -134,7 +134,7 @@ async function refreshAccessToken(): Promise<string | null> {
 }
 
 type RequestOptions = {
-  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   /** Skip the bearer token — only the auth endpoints do this. */
   anonymous?: boolean;
@@ -282,6 +282,8 @@ export const api = {
     request<T>(path, { ...opts, method: "GET" }),
   post: <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, "method">) =>
     request<T>(path, { ...opts, method: "POST", body }),
+  put: <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, "method">) =>
+    request<T>(path, { ...opts, method: "PUT", body }),
   patch: <T>(path: string, body?: unknown, opts?: Omit<RequestOptions, "method">) =>
     request<T>(path, { ...opts, method: "PATCH", body }),
   del: <T>(path: string, opts?: Omit<RequestOptions, "method" | "body">) =>
