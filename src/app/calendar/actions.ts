@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireRole, requireUser } from "@/lib/guard";
+import { requireReader, requireRole } from "@/lib/guard";
 import * as routeReads from "@/server/services/routeReads";
 import type { DayRoute } from "@/server/services/routeReads";
 import { parseMaterialUsage } from "@/lib/materials";
@@ -16,7 +16,7 @@ import type { ActionState } from "@/lib/actions";
 export async function loadDayRoute(
   day: string
 ): Promise<{ data?: DayRoute; error?: string }> {
-  const actor = await requireUser();
+  const actor = await requireReader();
   const res = await routeReads.getDayRoute(actor, day);
   return res.ok ? { data: res.data } : { error: res.error };
 }

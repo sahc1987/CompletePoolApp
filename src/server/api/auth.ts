@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Actor } from "@/server/actor";
 import { apiError } from "./respond";
 import { verifyAccessToken } from "./tokens";
+import { DEMO_READ_ONLY_MESSAGE, isDemoUser } from "@/lib/demo";
 
 /**
  * The API's counterpart to `lib/guard.ts`.
@@ -72,7 +73,12 @@ export async function requireApi(
 
   let actor: Actor;
 
-  if (opts.fresh) {
+  // Anything that isn't a read re-reads the account, whatever the route asked
+  // for: that's where the read-only demo account is recognised (by its email,
+  // which the token doesn't carry) and turned away.
+  const writing = req.method !== "GET" && req.method !== "HEAD";
+
+  if (opts.fresh || writing) {
     const user = await prisma.user.findUnique({
       where: { id: claims.userId },
       select: { id: true, name: true, email: true, role: true, active: true },
@@ -88,6 +94,10 @@ export async function requireApi(
     };
   } else {
     actor = { id: claims.userId, role: claims.role };
+  }
+
+  if (writing && isDemoUser(actor)) {
+    return { ok: false, response: apiError("FORBIDDEN", DEMO_READ_ONLY_MESSAGE) };
   }
 
   if (opts.roles && !opts.roles.includes(actor.role)) {

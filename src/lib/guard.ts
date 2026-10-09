@@ -2,6 +2,7 @@ import { getServerSession } from "next-auth";
 import { redirect } from "next/navigation";
 import { Role } from "@prisma/client";
 import { authOptions } from "./auth";
+import { isDemoUser } from "./demo";
 
 // Server-side authorization guard for use inside server actions and pages.
 // Middleware already gates routes by role, but server actions are their own
@@ -15,7 +16,23 @@ export async function requireRole(...roles: Role[]) {
 
 // Any authenticated user — for actions/pages that belong to the signed-in
 // user regardless of role (e.g. their own profile and password).
+//
+// Every server action that changes something comes through here (directly or
+// via requireRole), which makes it the one place the read-only demo account
+// is stopped: it's sent to a page that explains, instead of the change.
 export async function requireUser() {
+  const user = await requireSignedIn();
+  if (isDemoUser(user)) redirect("/demo");
+  return user;
+}
+
+// For server actions that only read — the demo account may use these. Keep
+// this list short and obviously read-only (currently: the calendar's Map tab).
+export async function requireReader() {
+  return requireSignedIn();
+}
+
+async function requireSignedIn() {
   const session = await getServerSession(authOptions);
   // A revoked account yields no session at all — see the session callback in
   // lib/auth.ts — so the plain null check covers deactivation too.

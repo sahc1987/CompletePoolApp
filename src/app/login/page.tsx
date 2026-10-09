@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { inputClass, labelClass } from "@/components/styles";
-import { getLoginFeedback } from "./actions";
+import { getDemoLogin, getLoginFeedback } from "./actions";
 
 // Selling points on the hero panel, each with its own glyph so the list reads
 // as three distinct capabilities rather than three identical ticks.
@@ -119,6 +119,33 @@ export default function LoginPage() {
   }, [lockedFor]);
 
   const locked = lockedFor > 0;
+
+  // The public read-only demo account, when it's switched on. Asked for once
+  // rather than built in, so turning the demo off needs no redeploy of this page.
+  const [demo, setDemo] = useState<{ email: string; password: string } | null>(null);
+  useEffect(() => {
+    getDemoLogin()
+      .then(setDemo)
+      .catch(() => setDemo(null));
+  }, []);
+
+  async function enterDemo() {
+    if (!demo || loading) return;
+    setError(null);
+    setLoading(true);
+    const result = await signIn("credentials", {
+      email: demo.email,
+      password: demo.password,
+      redirect: false,
+    });
+    setLoading(false);
+    if (result?.error) {
+      setError("The demo isn't available right now. Try again in a minute.");
+      return;
+    }
+    router.push("/calendar");
+    router.refresh();
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -417,6 +444,28 @@ export default function LoginPage() {
                     : "Sign in"}
               </button>
             </form>
+
+            {demo && (
+              <div className="mt-6 border-t border-line/70 pt-6">
+                <button
+                  type="button"
+                  onClick={enterDemo}
+                  disabled={loading}
+                  className="flex w-full items-center justify-center gap-2 rounded-full border border-teal-700/40 bg-teal-300/20 py-3 font-bold text-teal-800 transition hover:bg-teal-300/40 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <Icon className="h-5 w-5">
+                    <path d="M2.5 12s3.5-7 9.5-7 9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z" />
+                    <circle cx="12" cy="12" r="2.75" />
+                  </Icon>
+                  Explore the demo
+                </button>
+                <p className="mt-3 text-center text-xs text-muted">
+                  Read-only sample account, with nothing saved. Or sign in with{" "}
+                  <span className="font-semibold text-ink">{demo.email}</span> /{" "}
+                  <span className="font-semibold text-ink">{demo.password}</span>
+                </p>
+              </div>
+            )}
           </div>
 
           <p className="mt-6 flex items-center justify-center gap-1.5 text-xs text-faint">

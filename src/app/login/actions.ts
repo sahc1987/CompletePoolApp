@@ -1,6 +1,7 @@
 "use server";
 
 import { getThrottleState, type ThrottleState } from "@/lib/loginThrottle";
+import { DEMO_EMAIL, demoPassword } from "@/lib/demo";
 
 export type LoginFeedback = ThrottleState;
 
@@ -17,4 +18,15 @@ export type LoginFeedback = ThrottleState;
  */
 export async function getLoginFeedback(email: string): Promise<LoginFeedback> {
   return getThrottleState(email);
+}
+
+/**
+ * The public demo account's sign-in, while the demo is switched on (the
+ * DEMO_LOGIN_PASSWORD setting); null otherwise, which hides the button. The
+ * account is read-only — see lib/demo.ts — so publishing its password is the
+ * point, not a leak.
+ */
+export async function getDemoLogin(): Promise<{ email: string; password: string } | null> {
+  const password = demoPassword();
+  return password ? { email: DEMO_EMAIL, password } : null;
 }
