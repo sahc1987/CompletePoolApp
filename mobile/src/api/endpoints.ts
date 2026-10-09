@@ -101,6 +101,10 @@ export const auth = {
   login: (email: string, password: string) =>
     api.post<AuthSession>("/auth/login", { email, password }, { anonymous: true }),
 
+  /** The public read-only demo login, or null while the demo is switched off. */
+  demo: () =>
+    api.get<{ email: string; password: string } | null>("/auth/demo", { anonymous: true }),
+
   /** Best effort — the server answers 204 even for a token it doesn't know. */
   logout: (refreshToken: string) =>
     api.post<void>("/auth/logout", { refreshToken }, { anonymous: true }),
