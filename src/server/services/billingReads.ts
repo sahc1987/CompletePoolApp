@@ -8,6 +8,7 @@ import {
   type InvoiceLine,
 } from "@/lib/billing";
 import { getBusinessTimezone } from "@/lib/schedule";
+import { resolveBillPeriod, scopeBill, type BillRange } from "@/lib/billingPeriod";
 import { assertRole, type Actor } from "@/server/actor";
 import { payUrlFor } from "@/server/payments/stripe";
 import { requiredIso, requiredMoney } from "@/server/serialize";
@@ -228,11 +229,18 @@ export async function listBills(
 
 export type BillStatusFilter = "all" | "pending" | "partial" | "paid" | "open";
 
+/** A bill as listed for a period: `paid` stays all-time, and this is the slice of it. */
+export type BillListRow = BillRow & { paidInPeriod: number };
+
 export type BillListPage = {
-  rows: BillRow[];
-  /** Per tab, within the client filter, so the tabs can show their sizes. */
+  rows: BillListRow[];
+  /** Per tab, within the client filter and period, so the tabs can show their sizes. */
   counts: Record<BillStatusFilter, number>;
-  /** Across every bill in the client filter, whatever the tab. */
+  /**
+   * The web's three period figures: billed counts jobs dated in the period,
+   * collected counts payments received in it, outstanding is the real balance
+   * still owed on these bills. With no period, they're all-time.
+   */
   totals: { billed: number; collected: number; outstanding: number };
   page: number;
   perPage: number;
@@ -241,6 +249,18 @@ export type BillListPage = {
   total: number;
   /** The business's zone, so a phone shows dates as the business counts them. */
   timezone: string;
+  /**
+   * The period as resolved in that zone, with the day keys for stepping a day
+   * either side — so the app never does date arithmetic of its own.
+   */
+  period: {
+    range: BillRange;
+    label: string | null;
+    todayValue: string;
+    dayValue: string;
+    prevDay: string;
+    nextDay: string;
+  };
 };
 
 const matchesStatus = (b: BillRow, status: BillStatusFilter) =>
@@ -251,21 +271,33 @@ const matchesStatus = (b: BillRow, status: BillStatusFilter) =>
       : b.status.toLowerCase() === status;
 
 /**
- * One page of bills for the API, newest first: an optional client, a status
- * tab ("open" is anything with a balance — pending and partial together, which
- * is the list a person collecting money actually wants), and the totals the
- * web page shows above its table. Date ranges stay on the web.
+ * One page of bills for the API, newest first: an optional client, an
+ * optional period (the web's ranges, via lib/billingPeriod), and a status tab
+ * ("open" is anything with a balance — pending and partial together, which is
+ * the list a person collecting money actually wants).
  */
 export async function listBillsPage(
   actor: Actor,
-  opts: { status?: BillStatusFilter; clientId?: string; page?: number; perPage?: number } = {}
+  opts: {
+    status?: BillStatusFilter;
+    clientId?: string;
+    page?: number;
+    perPage?: number;
+    range?: string | null;
+    from?: string | null;
+    to?: string | null;
+  } = {}
 ): Promise<ServiceResult<BillListPage>> {
   const [all, timezone] = await Promise.all([listBills(actor), getBusinessTimezone()]);
   if (!all.ok) return all;
 
-  const scoped = opts.clientId
-    ? all.data.filter((b) => b.task.client.id === opts.clientId)
-    : all.data;
+  const period = resolveBillPeriod(opts, timezone);
+  const scoped = all.data
+    .filter((b) => !opts.clientId || b.task.client.id === opts.clientId)
+    .flatMap((b) => {
+      const cut = scopeBill(b, period);
+      return cut.touches ? [{ ...b, paidInPeriod: cut.paidInPeriod, billedInPeriod: cut.billedInPeriod }] : [];
+    });
   const status = opts.status ?? "all";
   const matching = scoped.filter((b) => matchesStatus(b, status));
 
@@ -282,11 +314,13 @@ export async function listBillsPage(
   const page = Math.min(Math.max(1, opts.page ?? 1), totalPages);
 
   return ok({
-    rows: matching.slice((page - 1) * perPage, page * perPage),
+    rows: matching
+      .slice((page - 1) * perPage, page * perPage)
+      .map(({ billedInPeriod: _billed, ...row }) => row),
     counts,
     totals: {
-      billed: round(scoped.reduce((s, b) => s + b.amount, 0)),
-      collected: round(scoped.reduce((s, b) => s + b.paid, 0)),
+      billed: round(scoped.reduce((s, b) => s + (b.billedInPeriod ? b.amount : 0), 0)),
+      collected: round(scoped.reduce((s, b) => s + b.paidInPeriod, 0)),
       outstanding: round(scoped.reduce((s, b) => s + Math.max(0, b.balance), 0)),
     },
     page,
@@ -294,6 +328,14 @@ export async function listBillsPage(
     totalPages,
     total: matching.length,
     timezone,
+    period: {
+      range: period.range,
+      label: period.label,
+      todayValue: period.todayValue,
+      dayValue: period.dayValue,
+      prevDay: period.prevDay,
+      nextDay: period.nextDay,
+    },
   });
 }
 

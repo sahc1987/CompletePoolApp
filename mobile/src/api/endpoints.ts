@@ -25,6 +25,7 @@ import type {
 } from "@contracts/materials";
 import type { CreateUserInput, SaveEmploymentInput } from "@contracts/users";
 import type {
+  CompanyInfoInput,
   SaveExtraInput,
   SaveServiceInput,
   SaveTaxRateInput,
@@ -482,8 +483,11 @@ export type Bill = {
   };
 };
 
+export type BillRange = "all" | "day" | "week" | "month" | "custom";
+
 export type BillListPage = {
-  rows: Bill[];
+  /** `paid` is all-time; `paidInPeriod` is the slice inside the chosen period. */
+  rows: (Bill & { paidInPeriod: number })[];
   counts: Record<BillStatusFilter, number>;
   totals: { billed: number; collected: number; outstanding: number };
   page: number;
@@ -492,6 +496,15 @@ export type BillListPage = {
   total: number;
   /** The business timezone, for showing dates. */
   timezone: string;
+  /** The period as the server resolved it, with day keys for the arrows. */
+  period: {
+    range: BillRange;
+    label: string | null;
+    todayValue: string;
+    dayValue: string;
+    prevDay: string;
+    nextDay: string;
+  };
 };
 
 export type BillDetail = Bill & { timezone: string };
@@ -501,13 +514,25 @@ export const receiptNumber = (n: number) => `RCP-${String(n).padStart(6, "0")}`;
 
 export const bills = {
   list: (
-    opts: { status?: BillStatusFilter; clientId?: string; page?: number; perPage?: number } = {}
+    opts: {
+      status?: BillStatusFilter;
+      clientId?: string;
+      page?: number;
+      perPage?: number;
+      range?: BillRange;
+      /** YYYY-MM-DD in the business zone; for "day", the day. */
+      from?: string;
+      to?: string;
+    } = {}
   ) => {
     const q = new URLSearchParams();
     if (opts.status) q.set("status", opts.status);
     if (opts.clientId) q.set("clientId", opts.clientId);
     if (opts.page) q.set("page", String(opts.page));
     if (opts.perPage) q.set("perPage", String(opts.perPage));
+    if (opts.range && opts.range !== "all") q.set("range", opts.range);
+    if (opts.from) q.set("from", opts.from);
+    if (opts.to) q.set("to", opts.to);
     const qs = q.toString();
     return api.get<BillListPage>(qs ? `/bills?${qs}` : "/bills");
   },
@@ -623,11 +648,27 @@ export type BusinessSettings = {
   extras: ExtraRow[];
   taxRates: TaxRateRow[];
   hours: { startMin: number; endMin: number; timezone: string };
+  company: CompanyInfo;
+};
+
+/** What invoices and receipts print about the business. */
+export type CompanyInfo = {
+  name: string;
+  tagline: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
+  website: string | null;
+  taxId: string | null;
+  paymentTerms: string;
+  paymentNote: string | null;
+  documentFooter: string | null;
 };
 
 export const settings = {
   get: () => api.get<BusinessSettings>("/settings"),
   saveHours: (input: SaveWorkHoursInput) => api.put<void>("/settings/hours", input),
+  saveCompany: (input: CompanyInfoInput) => api.put<void>("/settings/company", input),
   createService: (input: Omit<SaveServiceInput, "id">) =>
     api.post<{ id: string }>("/settings/services", input),
   updateService: (id: string, input: Omit<SaveServiceInput, "id">) =>

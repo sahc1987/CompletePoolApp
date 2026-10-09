@@ -104,3 +104,30 @@ export async function toggleTaxRate(formData: FormData): Promise<void> {
   await settingsService.toggleTaxRate(actor, { id: str(formData, "id") });
   revalidatePath("/settings");
 }
+
+// --- Company identity --------------------------------------------------
+
+export async function saveCompanyInfo(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const res = await settingsService.saveCompanyInfo(actor, {
+    name: str(formData, "name"),
+    tagline: opt(formData, "tagline"),
+    address: opt(formData, "address"),
+    phone: opt(formData, "phone"),
+    email: opt(formData, "email"),
+    website: opt(formData, "website"),
+    taxId: opt(formData, "taxId"),
+    paymentTerms: opt(formData, "paymentTerms"),
+    paymentNote: opt(formData, "paymentNote"),
+    documentFooter: opt(formData, "documentFooter"),
+  });
+  if (!res.ok) return { error: res.error };
+
+  // Printed on billing documents and the public pay page.
+  revalidatePath("/settings");
+  revalidatePath("/billing");
+  return { ok: true };
+}

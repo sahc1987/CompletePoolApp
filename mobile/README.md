@@ -56,6 +56,37 @@ To work against a local `npm run dev`, use your machine's **LAN address**, not
 EXPO_PUBLIC_API_URL=http://192.168.1.50:3000
 ```
 
+## Installing it on the crew's phones
+
+**Android:** a direct-install APK built on EAS, shared with the crew by link. There's no Play Store involved.
+- **iPhone:** waits on an Apple Developer account. Until then iPhone users run it in Expo Go.
+- **App ID:** `com.completepool.app` on both platforms.
+
+**First time only**, run `npx eas-cli init` to link this folder to the Expo account. It writes the project id into `app.json`.
+
+To build and hand out the app:
+
+```bash
+npm run build:android   # an installable .apk; EAS prints a link and QR code
+```
+
+Send the crew the link. On first install, Android asks to allow installs from that browser.
+
+**Fixes over the air.** JavaScript-only changes (screens, text, logic) reach installed phones without a new APK:
+
+```bash
+npm run update          # publishes to the "production" channel
+```
+
+Phones pick an update up on their next launch or two.
+
+**When a new APK is needed:** a new native module or a config-plugin change needs a new build. Bump `version` in `app.json` first.
+- `runtimeVersion` follows the app version, so an update is never sent to a build that can't run it.
+
+The production API address is in `app.json` (`extra.apiUrl`), not in `.env`. Builds and updates run on Expo's servers, which never see the git-ignored `.env`. `EXPO_PUBLIC_API_URL` still overrides it for local testing.
+
+`.npmrc` turns on `legacy-peer-deps` so the build servers install the same way a local `npm install --legacy-peer-deps` does.
+
 ## Checks
 
 ```bash

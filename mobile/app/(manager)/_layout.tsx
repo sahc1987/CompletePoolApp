@@ -108,6 +108,7 @@ export default function ManagerLayout() {
       <Tabs.Screen name="team/new" options={{ href: null, title: "Add person" }} />
       <Tabs.Screen name="settings/index" options={{ href: null, title: "Settings" }} />
       <Tabs.Screen name="settings/item" options={{ href: null, title: "Settings" }} />
+      <Tabs.Screen name="settings/company" options={{ href: null, title: "Company details" }} />
       <Tabs.Screen name="kpi" options={{ href: null, title: "Business numbers" }} />
     </Tabs>
   );

@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { getWorkHours, type WorkHours } from "@/lib/schedule";
+import { getCompanyInfo, type CompanyInfo } from "@/lib/company";
 import { assertRole, type Actor } from "@/server/actor";
 import { requiredMoney } from "@/server/serialize";
 import { ok, type ServiceResult } from "@/server/result";
@@ -140,6 +141,8 @@ export type BusinessCatalog = {
   extras: ExtraServiceRow[];
   taxRates: TaxRateRow[];
   hours: WorkHours;
+  /** What invoices and receipts print about the business. */
+  company: CompanyInfo;
 };
 
 /** Everything the settings screen edits. */
@@ -149,12 +152,13 @@ export async function getBusinessCatalog(
   const denied = assertRole(actor, "ADMIN");
   if (denied) return denied;
 
-  const [services, extras, taxRates, hours] = await Promise.all([
+  const [services, extras, taxRates, hours, company] = await Promise.all([
     listServices(),
     listExtras(),
     listTaxRates(),
     getWorkHours(),
+    getCompanyInfo(),
   ]);
 
-  return ok({ services, extras, taxRates, hours });
+  return ok({ services, extras, taxRates, hours, company });
 }

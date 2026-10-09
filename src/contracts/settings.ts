@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   nonNegativeNumber,
+  optionalEmail,
   optionalText,
   positiveInt,
   timeOnly,
@@ -61,3 +62,22 @@ export const toggleTaxRateSchema = z.object({
   id: z.string().min(1, "Missing tax rate"),
 });
 export type ToggleTaxRateInput = z.input<typeof toggleTaxRateSchema>;
+
+/**
+ * The business identity printed on every invoice and receipt. Only the name is
+ * required; a blank field is left off the documents rather than printed empty.
+ */
+export const companyInfoSchema = z.object({
+  name: z.string().trim().min(1, "Company name is required"),
+  tagline: optionalText,
+  address: optionalText,
+  phone: optionalText,
+  email: optionalEmail,
+  website: optionalText,
+  taxId: optionalText,
+  /** Blank falls back to "Due upon receipt". */
+  paymentTerms: optionalText,
+  paymentNote: optionalText,
+  documentFooter: optionalText,
+});
+export type CompanyInfoInput = z.input<typeof companyInfoSchema>;

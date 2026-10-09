@@ -121,6 +121,23 @@ describe("listBillsPage", () => {
     expect(res.data.rows.map((r) => r.id)).toEqual(["b3"]);
   });
 
+  it("scopes to a period the way the web page does", async () => {
+    // b1 and b2: jobs on Oct 6, with b2's $40 paid the evening of Oct 6.
+    // A day range on Oct 7 has neither job nor payment in it…
+    const empty = await listBillsPage(admin, { range: "day", from: "2026-10-07" });
+    if (!empty.ok) throw new Error(empty.error);
+    expect(empty.data.counts.all).toBe(0);
+    expect(empty.data.period).toMatchObject({ range: "day", dayValue: "2026-10-07", prevDay: "2026-10-06" });
+
+    // …while Oct 6 holds all three, the payments landing that evening in New
+    // York even though it's already the 7th in UTC.
+    const day = await listBillsPage(admin, { range: "day", from: "2026-10-06" });
+    if (!day.ok) throw new Error(day.error);
+    expect(day.data.counts.all).toBe(3);
+    expect(day.data.totals).toEqual({ billed: 250, collected: 90, outstanding: 160 });
+    expect(day.data.rows.find((r) => r.id === "b2")?.paidInPeriod).toBe(40);
+  });
+
   it("lets the owner read and keeps workers out", async () => {
     expect((await listBillsPage(owner)).ok).toBe(true);
     const res = await listBillsPage(worker);

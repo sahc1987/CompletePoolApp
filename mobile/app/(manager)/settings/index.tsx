@@ -5,7 +5,7 @@ import { ApiError } from "@/api/client";
 import { settings as settingsApi, type BusinessSettings } from "@/api/endpoints";
 import { saveWorkHoursSchema } from "@contracts/settings";
 import { Body, Button, Card, ErrorNotice, Field, Heading, Icon, Loading, Screen } from "@/ui/components";
-import { color, space, type, usd } from "@/ui/theme";
+import { color, radius, shadow, space, type, usd } from "@/ui/theme";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 /** Minutes past midnight as the "HH:MM" the hours endpoint takes. */
@@ -111,6 +111,22 @@ export default function SettingsScreen() {
 
       {data && (
         <>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push("/(manager)/settings/company")}
+            style={({ pressed }) => [s.company, pressed && { opacity: 0.85 }]}
+          >
+            <Icon name="business-outline" size={24} color={color.navy700} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.itemTitle}>{data.company.name}</Text>
+              <Text style={s.itemDetail} numberOfLines={1}>
+                {[data.company.phone, data.company.email, data.company.address].filter(Boolean).join(" · ") ||
+                  "Company details on invoices and receipts"}
+              </Text>
+            </View>
+            <Icon name="chevron-forward" size={18} color={color.faint} />
+          </Pressable>
+
           <Card>
             <Heading>Business hours</Heading>
             <Body tone="muted">Jobs can only be scheduled inside these hours.</Body>
@@ -211,6 +227,16 @@ function Item({ title, detail, onPress }: { title: string; detail: string; onPre
 
 const s = StyleSheet.create({
   row2: { flexDirection: "row", gap: space.md, marginTop: space.md },
+  company: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: space.md,
+    backgroundColor: color.white,
+    borderRadius: radius.xl,
+    padding: space.lg,
+    marginBottom: space.md,
+    ...shadow.card,
+  },
   saved: { ...type.bodyStrong, color: color.good, marginBottom: space.sm },
   sectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   add: { ...type.bodyStrong, color: color.teal700 },

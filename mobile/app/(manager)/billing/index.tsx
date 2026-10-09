@@ -4,12 +4,13 @@ import { Pressable, RefreshControl, StyleSheet, Text, View } from "react-native"
 import { ApiError } from "@/api/client";
 import {
   bills as billsApi,
-  type Bill,
   type BillListPage,
+  type BillRange,
   type BillStatusFilter,
 } from "@/api/endpoints";
 import { BillCard } from "@/features/billing/shared";
-import { Button, Chip, Empty, ErrorNotice, Loading, Screen } from "@/ui/components";
+import { Button, Chip, Empty, ErrorNotice, Icon, Loading, Screen } from "@/ui/components";
+import { DateField } from "@/ui/DateField";
 import { color, radius, shadow, space, type, usd } from "@/ui/theme";
 
 const TABS: { key: BillStatusFilter; label: string }[] = [
@@ -20,29 +21,45 @@ const TABS: { key: BillStatusFilter; label: string }[] = [
   { key: "paid", label: "Paid" },
 ];
 
+const RANGES: { key: BillRange; label: string }[] = [
+  { key: "all", label: "All time" },
+  { key: "day", label: "Day" },
+  { key: "week", label: "This week" },
+  { key: "month", label: "This month" },
+  { key: "custom", label: "Custom" },
+];
+
+type Query = { status: BillStatusFilter; range: BillRange; from?: string; to?: string };
+
 /**
  * Every bill, newest first, opening on the ones with money still owed — the
- * list someone collecting payments actually wants. The totals across the top
- * are all-time, as on the web with no date range picked; date ranges stay on
- * the web.
+ * list someone collecting payments actually wants.
+ *
+ * A period scopes it the way the web's does (the server resolves it, in the
+ * business's timezone): a bill is in the period if the job was done in it or
+ * money came in during it. Billed counts jobs dated in the period, collected
+ * counts payments received in it, outstanding is the real balance today.
  */
 export default function BillingList() {
   const router = useRouter();
-  const [tab, setTab] = useState<BillStatusFilter>("open");
+  const [query, setQuery] = useState<Query>({ status: "open", range: "all" });
   const [data, setData] = useState<BillListPage | null>(null);
-  const [rows, setRows] = useState<Bill[]>([]);
+  const [rows, setRows] = useState<BillListPage["rows"]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // A slow response for a tab you've already left must not overwrite the new one.
+  // Custom-range fields, applied with a button rather than on every keystroke.
+  const [fromDraft, setFromDraft] = useState("");
+  const [toDraft, setToDraft] = useState("");
+  // A slow response for a filter you've already left must not overwrite the new one.
   const latest = useRef(0);
 
-  const load = useCallback(async (status: BillStatusFilter, mode: "initial" | "refresh") => {
+  const load = useCallback(async (q: Query, mode: "initial" | "refresh") => {
     const call = ++latest.current;
     if (mode === "refresh") setRefreshing(true);
     try {
-      const res = await billsApi.list({ status });
+      const res = await billsApi.list(q);
       if (call !== latest.current) return;
       setData(res);
       setRows(res.rows);
@@ -61,15 +78,15 @@ export default function BillingList() {
 
   useFocusEffect(
     useCallback(() => {
-      void load(tab, "refresh");
-    }, [load, tab])
+      void load(query, "refresh");
+    }, [load, query])
   );
 
   const loadMore = async () => {
     if (!data || more) return;
     setMore(true);
     try {
-      const res = await billsApi.list({ status: tab, page: data.page + 1 });
+      const res = await billsApi.list({ ...query, page: data.page + 1 });
       setData(res);
       setRows((prev) => [...prev, ...res.rows.filter((r) => !prev.some((p) => p.id === r.id))]);
     } catch (e) {
@@ -79,19 +96,82 @@ export default function BillingList() {
     }
   };
 
-  const pick = (key: BillStatusFilter) => {
-    if (key === tab) return;
-    setTab(key);
+  const change = (next: Partial<Query>) => {
+    setQuery((q) => ({ ...q, ...next }));
     setRows([]);
     setLoading(true);
   };
 
+  const pickRange = (range: BillRange) => {
+    if (range === query.range) return;
+    // Custom waits for dates; the rest apply at once.
+    if (range === "custom") {
+      setFromDraft(query.from ?? "");
+      setToDraft(query.to ?? "");
+    }
+    change({ range, from: undefined, to: undefined });
+  };
+
+  const period = data?.period;
+  const ranged = query.range !== "all";
+
   return (
     <Screen
       refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={() => load(tab, "refresh")} tintColor={color.navy700} />
+        <RefreshControl refreshing={refreshing} onRefresh={() => load(query, "refresh")} tintColor={color.navy700} />
       }
     >
+      <View style={s.tabs}>
+        {RANGES.map((r) => (
+          <Chip key={r.key} label={r.label} selected={query.range === r.key} onPress={() => pickRange(r.key)} />
+        ))}
+      </View>
+
+      {query.range === "day" && period && (
+        <View style={s.dayRow}>
+          <Arrow icon="chevron-back" label="Previous day" onPress={() => change({ from: period.prevDay })} />
+          <Text style={s.dayLabel}>{period.label?.replace(/^on /, "") ?? ""}</Text>
+          <Arrow icon="chevron-forward" label="Next day" onPress={() => change({ from: period.nextDay })} />
+          {period.dayValue !== period.todayValue && (
+            <Pressable onPress={() => change({ from: undefined })} hitSlop={8} accessibilityRole="button">
+              <Text style={s.today}>Today</Text>
+            </Pressable>
+          )}
+        </View>
+      )}
+
+      {query.range === "custom" && (
+        <View style={s.custom}>
+          <View style={s.customRow}>
+            <View style={{ flex: 1 }}>
+              <DateField
+                label="From"
+                value={fromDraft}
+                onChange={setFromDraft}
+                placeholder="Beginning"
+                clearable
+                defaultDate={period?.todayValue}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <DateField
+                label="To"
+                value={toDraft}
+                onChange={setToDraft}
+                placeholder="Today"
+                clearable
+                defaultDate={period?.todayValue}
+              />
+            </View>
+          </View>
+          <Button
+            title="Apply"
+            variant="secondary"
+            onPress={() => change({ from: fromDraft.trim() || undefined, to: toDraft.trim() || undefined })}
+          />
+        </View>
+      )}
+
       {data && (
         <View style={s.totals}>
           <Total label="Billed" value={data.totals.billed} tone={color.ink} />
@@ -101,19 +181,24 @@ export default function BillingList() {
           <Total label="Outstanding" value={data.totals.outstanding} tone={color.warn} />
         </View>
       )}
+      {ranged && period?.label && (
+        <Text style={s.periodNote}>
+          Jobs done or payments received {period.label}. Outstanding is the full balance still owed on these bills.
+        </Text>
+      )}
 
       <View style={s.tabs}>
         {TABS.map((t) => (
           <Chip
             key={t.key}
             label={data ? `${t.label} (${data.counts[t.key]})` : t.label}
-            selected={tab === t.key}
-            onPress={() => pick(t.key)}
+            selected={query.status === t.key}
+            onPress={() => query.status !== t.key && change({ status: t.key })}
           />
         ))}
       </View>
 
-      {!!error && <ErrorNotice message={error} onRetry={() => load(tab, "initial")} />}
+      {!!error && <ErrorNotice message={error} onRetry={() => load(query, "initial")} />}
 
       {loading ? (
         <Loading label="Loading bills…" />
@@ -121,17 +206,24 @@ export default function BillingList() {
         <>
           {!error && rows.length === 0 && (
             <Empty
-              title={tab === "open" ? "Nothing owed" : "No bills here"}
+              title={ranged ? "Nothing in this period" : query.status === "open" ? "Nothing owed" : "No bills here"}
               detail="Bills are created automatically when a job is approved."
             />
           )}
           {rows.map((b) => (
-            <BillCard
-              key={b.id}
-              bill={b}
-              timezone={data?.timezone}
-              onPress={() => router.push(`/(manager)/billing/${b.id}`)}
-            />
+            <View key={b.id}>
+              <BillCard
+                bill={b}
+                timezone={data?.timezone}
+                onPress={() => router.push(`/(manager)/billing/${b.id}`)}
+              />
+              {ranged && b.paidInPeriod !== b.paid && (
+                <Text style={s.inPeriod}>
+                  {b.paidInPeriod > 0 ? `${usd(b.paidInPeriod)} of the payments` : "None of the payments"} came in
+                  during this period
+                </Text>
+              )}
+            </View>
           ))}
           {data && data.page < data.totalPages && (
             <Button title="Show more" variant="secondary" onPress={loadMore} loading={more} />
@@ -139,6 +231,22 @@ export default function BillingList() {
         </>
       )}
     </Screen>
+  );
+}
+
+function Arrow({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: "chevron-back" | "chevron-forward";
+  label: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={s.arrow}>
+      <Icon name={icon} size={20} color={color.navy700} />
+    </Pressable>
   );
 }
 
@@ -167,4 +275,27 @@ const s = StyleSheet.create({
   totalValue: { ...type.heading, fontWeight: "700", marginTop: 2 },
   rule: { width: 1, backgroundColor: color.chrome100 },
   tabs: { flexDirection: "row", flexWrap: "wrap", gap: space.sm, marginBottom: space.md },
+  dayRow: { flexDirection: "row", alignItems: "center", gap: space.sm, marginBottom: space.md },
+  dayLabel: { ...type.bodyStrong, color: color.ink, flex: 1, textAlign: "center" },
+  arrow: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: color.field,
+    backgroundColor: color.white,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  today: { ...type.bodyStrong, color: color.teal700 },
+  custom: {
+    backgroundColor: color.white,
+    borderRadius: radius.xl,
+    padding: space.lg,
+    marginBottom: space.md,
+    ...shadow.card,
+  },
+  customRow: { flexDirection: "row", gap: space.md },
+  periodNote: { ...type.small, color: color.muted, marginTop: -space.xs, marginBottom: space.md },
+  inPeriod: { ...type.small, color: color.muted, marginTop: -space.sm, marginBottom: space.md, marginLeft: space.sm },
 });

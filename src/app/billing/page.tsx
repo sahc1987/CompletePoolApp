@@ -5,11 +5,7 @@ import PageHeader from "@/components/PageHeader";
 import { Icon } from "@/components/icons";
 import { btnBlue, btnGhost, card, inputClass, labelClass } from "@/components/styles";
 import { money } from "@/lib/serialize";
-import {
-  backfillBills,
-  backfillLegacyPayments,
-  paidAmount,
-} from "@/lib/billing";
+import { backfillBills, backfillLegacyPayments } from "@/lib/billing";
 import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
 import UndoForm from "./UndoForm";
@@ -17,16 +13,14 @@ import { InvoiceButton } from "./BillingPdf";
 import { invoiceDataFor, METHOD_LABEL, receiptDataFor } from "@/lib/pdf/billDocData";
 import PayLinkActions from "@/components/PayLinkActions";
 import { getCompanyInfo } from "@/lib/company";
+import {
+  BILL_RANGE_LABEL,
+  BILL_RANGES,
+  resolveBillPeriod,
+  scopeBill,
+} from "@/lib/billingPeriod";
 import { requirePageSession } from "@/lib/guard";
 import { getBusinessTimezone } from "@/lib/schedule";
-import {
-  addZonedDays,
-  parseZonedDate,
-  zonedDayKey,
-  zonedDayStart,
-  zonedMonthStart,
-  zonedWeekStart,
-} from "@/lib/timezone";
 
 // "Pending" is not a warning — it's just not-yet. Amber here collided with
 // the gold CTA sitting in the same row.
@@ -129,15 +123,8 @@ const DEFAULT_DIR: Record<SortCol, "asc" | "desc"> = {
 const STATUS_RANK: Record<string, number> = { PENDING: 0, PARTIAL: 1, PAID: 2 };
 
 // Date scopes, keyed off the job date shown on every row.
-const RANGES = ["all", "day", "week", "month", "custom"] as const;
-type RangeKey = (typeof RANGES)[number];
-const RANGE_LABEL: Record<RangeKey, string> = {
-  all: "All time",
-  day: "Specific date",
-  week: "This week",
-  month: "This month",
-  custom: "Custom",
-};
+const RANGES = BILL_RANGES;
+const RANGE_LABEL = BILL_RANGE_LABEL;
 
 const PER_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_PER = 10;
@@ -192,115 +179,39 @@ export default async function BillingPage({
 
   // Date range first — it's the outer scope, so the KPI strip, the tab
   // counts and the debtor list all describe the period you're looking at
-  // rather than the whole history.
-  const rangeKey: RangeKey = (RANGES as readonly string[]).includes(
-    searchParams.range ?? ""
-  )
-    ? (searchParams.range as RangeKey)
-    : "all";
+  // rather than the whole history. Resolved by lib/billingPeriod, which the
+  // API uses too, so the app and this page agree on what a period holds.
+  const period = resolveBillPeriod(searchParams, tz);
+  const rangeKey = period.range;
   const fromParam = (searchParams.from ?? "").trim();
   const toParam = (searchParams.to ?? "").trim();
-
-  const now = new Date();
-  let rangeStart: Date | null = null;
-  let rangeEnd: Date | null = null; // exclusive
-  if (rangeKey === "day") {
-    // A single day, reusing ?from as the chosen date so the URL keeps the
-    // same shape as a custom range. Nothing picked yet means today.
-    rangeStart =
-      (fromParam ? parseZonedDate(fromParam, tz) : null) ?? zonedDayStart(now, tz);
-    rangeEnd = addZonedDays(rangeStart, 1, tz);
-  } else if (rangeKey === "week") {
-    rangeStart = zonedWeekStart(now, tz);
-    rangeEnd = addZonedDays(rangeStart, 7, tz);
-  } else if (rangeKey === "month") {
-    rangeStart = zonedMonthStart(now, tz);
-    // +32 days always lands in the next month, whatever its length.
-    rangeEnd = zonedMonthStart(addZonedDays(rangeStart, 32, tz), tz);
-  } else if (rangeKey === "custom") {
-    rangeStart = fromParam ? parseZonedDate(fromParam, tz) : null;
-    const toDate = toParam ? parseZonedDate(toParam, tz) : null;
-    // "To" is the last day you want included, not the cut-off before it.
-    rangeEnd = toDate ? addZonedDays(toDate, 1, tz) : null;
-  }
-  // A reversed custom range (from after to) would silently match nothing;
-  // read it the way it was obviously meant instead.
-  if (rangeStart && rangeEnd && rangeStart >= rangeEnd) {
-    [rangeStart, rangeEnd] = [
-      addZonedDays(rangeEnd, -1, tz),
-      addZonedDays(rangeStart, 1, tz),
-    ];
-  }
-  const ranged = rangeStart !== null || rangeEnd !== null;
-
-  // The day the "Specific date" picker is sitting on, plus the days on either side —
-  // written as yyyy-mm-dd in the business zone, which is what <input
-  // type="date"> and parseZonedDate both speak.
-  const todayValue = zonedDayKey(now, tz);
-  const dayValue =
-    rangeKey === "day" && rangeStart ? zonedDayKey(rangeStart, tz) : todayValue;
-  const prevDay =
-    rangeKey === "day" && rangeStart
-      ? zonedDayKey(addZonedDays(rangeStart, -1, tz), tz)
-      : todayValue;
-  const nextDay =
-    rangeKey === "day" && rangeStart
-      ? zonedDayKey(addZonedDays(rangeStart, 1, tz), tz)
-      : todayValue;
-
-  const inPeriod = (value: Date | string | null | undefined) => {
-    const d = asDate(value);
-    if (!d) return false;
-    if (rangeStart && d < rangeStart) return false;
-    if (rangeEnd && d >= rangeEnd) return false;
-    return true;
-  };
-
-  // A bill belongs to the period if the job was done in it *or* money came in
-  // during it — so last month's job paid this month still shows up in the
-  // month you actually collected it.
-  const inRange = ranged
-    ? rows.filter(
-        (r) =>
-          inPeriod(r.bill.task.date) || r.bill.payments.some((p) => inPeriod(p.paidAt))
-      )
-    : rows;
+  const { todayValue, dayValue, prevDay, nextDay } = period;
+  const periodLabel = period.label;
 
   // Re-cut each row's money to the period. "Paid" becomes what came in during
   // it and the history behind the row lists only those payments; the balance
   // stays the real one, because that's what you'd collect today and it's what
   // the payment form is allowed to take.
-  const scoped = inRange.map((r) => {
-    const keep = r.bill.payments.map((p) => !ranged || inPeriod(p.paidAt));
-    const periodPayments = r.bill.payments.filter((_, i) => keep[i]);
-    const periodReceipts = r.receipts.filter((_, i) => keep[i]);
-    // Original 1-based position, so a trimmed list still reads "Payment 3".
-    const periodSeqs = r.bill.payments.map((_, i) => i + 1).filter((_, i) => keep[i]);
-    const periodReversals = ranged
-      ? r.bill.reversals.filter((x) => inPeriod(x.createdAt))
-      : r.bill.reversals;
-    return {
-      ...r,
-      /** Everything ever paid on this bill. */
-      paidAll: r.paid,
-      /** Paid inside the selected period — what the row and KPIs show. */
-      paid: paidAmount(periodPayments),
-      periodPayments,
-      periodReceipts,
-      periodSeqs,
-      periodReversals,
-      // Only a job dated inside the period counts as billed in it.
-      billedInPeriod: !ranged || inPeriod(r.bill.task.date),
-    };
+  const scoped = rows.flatMap((r) => {
+    const cut = scopeBill(r.bill, period);
+    if (!cut.touches) return [];
+    const periodPayments = r.bill.payments.filter((_, i) => cut.keep[i]);
+    return [
+      {
+        ...r,
+        /** Everything ever paid on this bill. */
+        paidAll: r.paid,
+        /** Paid inside the selected period — what the row and KPIs show. */
+        paid: cut.paidInPeriod,
+        periodPayments,
+        periodReceipts: r.receipts.filter((_, i) => cut.keep[i]),
+        // Original 1-based position, so a trimmed list still reads "Payment 3".
+        periodSeqs: r.bill.payments.map((_, i) => i + 1).filter((_, i) => cut.keep[i]),
+        periodReversals: r.bill.reversals.filter((_, i) => cut.reversalsInPeriod[i]),
+        billedInPeriod: cut.billedInPeriod,
+      },
+    ];
   });
-
-  const periodLabel = !ranged
-    ? null
-    : rangeKey === "day" && rangeStart
-    ? `on ${fmtDate(rangeStart)}`
-    : `${rangeStart ? fmtDate(rangeStart) : "the beginning"} – ${
-        rangeEnd ? fmtDate(addZonedDays(rangeEnd, -1, tz)) : "today"
-      }`;
 
   const filter =
     searchParams.status === "paid" ||

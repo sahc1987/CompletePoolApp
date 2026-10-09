@@ -17,6 +17,8 @@ import {
   saveTaxRateSchema,
   saveWorkHoursSchema,
   toggleTaxRateSchema,
+  companyInfoSchema,
+  type CompanyInfoInput,
   type DeleteExtraInput,
   type DeleteServiceInput,
   type SaveExtraInput,
@@ -203,4 +205,41 @@ export async function toggleTaxRate(
     data: { active: !rate.active },
   });
   return ok({ active: updated.active });
+}
+
+// --- Company identity --------------------------------------------------
+
+/**
+ * Save what invoices and receipts print about the business. Takes effect on
+ * the next document; ones already sent are unchanged.
+ */
+export async function saveCompanyInfo(
+  actor: Actor,
+  input: CompanyInfoInput
+): Promise<ServiceResult<void>> {
+  const denied = assertRole(actor, "ADMIN");
+  if (denied) return denied;
+
+  const parsed = companyInfoSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  const c = parsed.data;
+
+  const data = {
+    companyName: c.name,
+    companyTagline: c.tagline ?? null,
+    companyAddress: c.address ?? null,
+    companyPhone: c.phone ?? null,
+    companyEmail: c.email ?? null,
+    companyWebsite: c.website ?? null,
+    companyTaxId: c.taxId ?? null,
+    paymentTerms: c.paymentTerms ?? "Due upon receipt",
+    paymentNote: c.paymentNote ?? null,
+    documentFooter: c.documentFooter ?? null,
+  };
+  await prisma.appSettings.upsert({
+    where: { id: "app" },
+    update: data,
+    create: { id: "app", ...data },
+  });
+  return ok();
 }

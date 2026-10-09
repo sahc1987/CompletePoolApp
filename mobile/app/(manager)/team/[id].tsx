@@ -19,6 +19,7 @@ import {
   Screen,
   Title,
 } from "@/ui/components";
+import { DateField } from "@/ui/DateField";
 import { color, radius, space, type, usd } from "@/ui/theme";
 
 const hoursLabel = (min: number) => `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, "0")}m`;
@@ -279,19 +280,14 @@ export default function TeamMember() {
               placeholder="e.g. Annual raise"
               editable={!busy}
             />
-            <Field
-              label="Hire date (YYYY-MM-DD)"
-              value={hiredOn}
-              onChangeText={setHiredOn}
-              keyboardType="numbers-and-punctuation"
-              editable={!busy}
-            />
-            <Field
-              label="Birthday (YYYY-MM-DD)"
+            <DateField label="Hire date" value={hiredOn} onChange={setHiredOn} clearable disabled={!!busy} />
+            <DateField
+              label="Birthday"
               value={birthday}
-              onChangeText={setBirthday}
-              keyboardType="numbers-and-punctuation"
-              editable={!busy}
+              onChange={setBirthday}
+              clearable
+              disabled={!!busy}
+              defaultDate="1990-01-01"
             />
             <Button title="Save" onPress={saveEmployment} loading={busy === "employment"} />
           </Card>

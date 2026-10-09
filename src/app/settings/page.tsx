@@ -8,6 +8,7 @@ import { card } from "@/components/styles";
 import { minToHHMM } from "@/lib/schedule";
 import CatalogForm, { type Field } from "./CatalogForm";
 import WorkHoursForm from "./WorkHoursForm";
+import CompanyForm from "./CompanyForm";
 import {
   saveService,
   deleteService,
@@ -77,7 +78,7 @@ export default async function SettingsPage() {
 
   const catalog = await getBusinessCatalog(session.user);
   if (!catalog.ok) throw new Error(catalog.error);
-  const { services, extras, taxRates, hours } = catalog.data;
+  const { services, extras, taxRates, hours, company } = catalog.data;
 
   const rowDelete =
     "rounded-full px-3 py-1.5 text-[13px] font-semibold text-faint transition hover:bg-danger/10 hover:text-danger";
@@ -87,10 +88,21 @@ export default async function SettingsPage() {
       <PageHeader
         title="Service"
         accent="settings"
-        subtitle="Business hours, and your catalog of services, add-ons, and tax rates."
+        subtitle="Company details, business hours, and your catalog of services, add-ons, and tax rates."
       />
 
       <div className="space-y-6">
+        {/* Company identity */}
+        <section className={card}>
+          <div className="mb-3">
+            <h2 className="text-lg font-semibold text-ink">Company details</h2>
+            <p className="mt-0.5 text-sm text-muted">
+              What every invoice and receipt prints about the business.
+            </p>
+          </div>
+          <CompanyForm company={company} />
+        </section>
+
         {/* Business hours */}
         <section className={card}>
           <div className="mb-3">
