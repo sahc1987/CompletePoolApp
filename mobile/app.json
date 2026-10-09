@@ -46,7 +46,14 @@
       "policy": "appVersion"
     },
     "extra": {
-      "apiUrl": "https://complete-pool-app.vercel.app"
+      "apiUrl": "https://complete-pool-app.vercel.app",
+      "eas": {
+        "projectId": "08632dd0-6cef-4e9d-9034-e66d9fa74950"
+      }
+    },
+    "owner": "sahc1987",
+    "updates": {
+      "url": "https://u.expo.dev/08632dd0-6cef-4e9d-9034-e66d9fa74950"
     }
   }
 }
