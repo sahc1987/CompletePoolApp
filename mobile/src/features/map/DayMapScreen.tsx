@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useFocusEffect, useRouter } from "expo-router";
 import { Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, Polyline } from "react-native-maps";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError } from "@/api/client";
 import { dayRoute as dayRouteApi, type DayRoute } from "@/api/endpoints";
 import { directionsForDay, directionsTo } from "@/features/map/directions";
+import { LeafletMap, type LeafletMapHandle, type MapLine } from "@/features/map/LeafletMap";
 import { Button, Chip, ErrorNotice, Icon, Loading, StatusBadge } from "@/ui/components";
 import { color, radius, shadow, space, type } from "@/ui/theme";
 
@@ -23,14 +23,6 @@ import { color, radius, shadow, space, type } from "@/ui/theme";
 // One color per worker, readable under white numbers; order of first stop.
 const WORKER_COLORS = ["#1a56db", "#0e7490", "#b45309", "#6d28d9", "#be123c", "#15803d", "#c2410c", "#334155"];
 
-// Long Island, until the day's pins arrive and the map fits to them.
-const FALLBACK_REGION = {
-  latitude: 40.72,
-  longitude: -73.45,
-  latitudeDelta: 0.6,
-  longitudeDelta: 0.6,
-};
-
 const DONE = new Set(["SUBMITTED", "APPROVED"]);
 
 export function DayMapScreen({
@@ -45,7 +37,7 @@ export function DayMapScreen({
   const router = useRouter();
   const [workerFilter, setWorkerFilter] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
-  const mapRef = useRef<MapView>(null);
+  const mapRef = useRef<LeafletMapHandle>(null);
   const [route, setRoute] = useState<DayRoute | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,82 +68,45 @@ export function DayMapScreen({
   const colorFor = (workerId: string) =>
     byWorker ? WORKER_COLORS[(workerIndex.get(workerId) ?? 0) % WORKER_COLORS.length]! : color.navy700;
   const placed = stops.filter((s) => s.lat !== null && s.lng !== null);
-  const coords = placed.map((s) => ({ latitude: s.lat!, longitude: s.lng! }));
-
-  // Frame every pin whenever the day changes.
-  useEffect(() => {
-    if (coords.length === 0) return;
-    const t = setTimeout(() => {
-      mapRef.current?.fitToCoordinates(coords, {
-        edgePadding: { top: 80, right: 50, bottom: 60, left: 50 },
-        animated: true,
-      });
-    }, 250);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [route?.day, coords.length]);
 
   const focus = (taskId: string) => {
     setSelected(taskId);
-    const s = placed.find((p) => p.taskId === taskId);
-    if (s) {
-      mapRef.current?.animateToRegion(
-        { latitude: s.lat!, longitude: s.lng!, latitudeDelta: 0.02, longitudeDelta: 0.02 },
-        350
-      );
-    }
+    mapRef.current?.focus(taskId);
   };
 
   // A whole-day route is one person's: the worker's own, or a filtered worker's.
   const dayDirections = !byWorker || workerFilter ? directionsForDay(stops) : null;
 
   // One dashed line per worker, through their stops in order.
-  const lines = new Map<string, { latitude: number; longitude: number }[]>();
+  const byWorkerPath = new Map<string, [number, number][]>();
   for (const s of placed) {
-    lines.set(s.workerId, [...(lines.get(s.workerId) ?? []), { latitude: s.lat!, longitude: s.lng! }]);
+    byWorkerPath.set(s.workerId, [...(byWorkerPath.get(s.workerId) ?? []), [s.lat!, s.lng!]]);
   }
+  const lines: MapLine[] = [...byWorkerPath.entries()].map(([workerId, points]) => ({
+    color: colorFor(workerId),
+    points,
+  }));
+  const pins = placed.map((s) => ({
+    id: s.taskId,
+    lat: s.lat!,
+    lng: s.lng!,
+    label: String(s.order),
+    color: colorFor(s.workerId),
+    done: DONE.has(s.status),
+    title: `Stop ${s.order}, ${s.clientName}`,
+  }));
 
   return (
     <View style={{ flex: 1, backgroundColor: color.surface }}>
-      <MapView
+      <LeafletMap
         ref={mapRef}
-        style={StyleSheet.absoluteFill}
-        initialRegion={FALLBACK_REGION}
-        showsUserLocation={false}
-        toolbarEnabled={false}
-      >
-        {[...lines.entries()].map(([workerId, path]) =>
-          path.length > 1 ? (
-            <Polyline
-              key={workerId}
-              coordinates={path}
-              strokeColor={colorFor(workerId)}
-              strokeWidth={3}
-              lineDashPattern={[8, 8]}
-            />
-          ) : null
-        )}
-        {placed.map((s) => (
-          <Marker
-            key={s.taskId}
-            coordinate={{ latitude: s.lat!, longitude: s.lng! }}
-            onPress={() => focus(s.taskId)}
-            tracksViewChanges={false}
-            accessibilityLabel={`Stop ${s.order}, ${s.clientName}`}
-          >
-            <View
-              style={[
-                st.pin,
-                { backgroundColor: colorFor(s.workerId) },
-                DONE.has(s.status) && st.pinDone,
-                selected === s.taskId && st.pinSelected,
-              ]}
-            >
-              <Text style={st.pinText}>{s.order}</Text>
-            </View>
-          </Marker>
-        ))}
-      </MapView>
+        pins={pins}
+        lines={lines}
+        // Re-frame on a new day or a different worker filter.
+        fitKey={`${route?.day ?? ""}|${workerFilter ?? ""}|${pins.length}`}
+        onSelect={setSelected}
+        onFailed={() => setError("The map couldn't load. Check your connection; the stop list still works.")}
+      />
 
       {/* Day switcher floats over the map, like the reference's top bar. */}
       <View style={[st.topBar, { top: insets.top + space.md }]}>
@@ -271,20 +226,7 @@ export function DayMapScreen({
 }
 
 const st = StyleSheet.create({
-  pin: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: color.navy700,
-    borderWidth: 3,
-    borderColor: color.white,
-    alignItems: "center",
-    justifyContent: "center",
-    ...shadow.raised,
-  },
   pinDone: { backgroundColor: color.good },
-  pinSelected: { backgroundColor: color.teal700, transform: [{ scale: 1.2 }] },
-  pinText: { color: color.white, fontWeight: "800", fontSize: 14 },
   topBar: {
     position: "absolute",
     left: space.lg,
