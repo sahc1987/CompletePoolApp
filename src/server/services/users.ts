@@ -247,7 +247,7 @@ export async function createUser(
       email,
       phone: phone ?? null,
       role,
-      passwordHash: await bcrypt.hash(password, 10),
+      passwordHash: await bcrypt.hash(password, 12),
     },
   });
   return ok({ id: created.id });
@@ -274,7 +274,7 @@ export async function resetUserPassword(
 
   await prisma.user.update({
     where: { id: found.target.id },
-    data: { passwordHash: await bcrypt.hash(parsed.data.password, 10) },
+    data: { passwordHash: await bcrypt.hash(parsed.data.password, 12) },
   });
 
   // A reset is usually a response to someone having lost control of the

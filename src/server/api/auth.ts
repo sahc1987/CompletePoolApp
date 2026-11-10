@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Actor } from "@/server/actor";
 import { apiError } from "./respond";
 import { verifyAccessToken } from "./tokens";
+import { audit } from "@/lib/audit";
 import { DEMO_READ_ONLY_MESSAGE, isDemoUser } from "@/lib/demo";
 
 /**
@@ -101,6 +102,7 @@ export async function requireApi(
   }
 
   if (opts.roles && !opts.roles.includes(actor.role)) {
+    audit("permission_denied", { userId: actor.id, detail: new URL(req.url).pathname });
     return {
       ok: false,
       response: apiError("FORBIDDEN", "You don't have access to that."),

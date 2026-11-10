@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { audit } from "@/lib/audit";
 import { prisma } from "@/lib/prisma";
 import type { Actor } from "@/server/actor";
 import { invalid, notFound, ok, type ServiceResult } from "@/server/result";
@@ -43,7 +44,10 @@ export async function changePassword(
   if (!user) return notFound("Account not found");
 
   const valid = await bcrypt.compare(currentPassword, user.passwordHash);
-  if (!valid) return invalid("Your current password is wrong.");
+  if (!valid) {
+    audit("login_failed", { userId: user.id, detail: "change_password" });
+    return invalid("Your current password is wrong.");
+  }
 
   if (await bcrypt.compare(newPassword, user.passwordHash)) {
     return invalid("New password must be different from the current one.");
@@ -51,8 +55,9 @@ export async function changePassword(
 
   await prisma.user.update({
     where: { id: user.id },
-    data: { passwordHash: await bcrypt.hash(newPassword, 10) },
+    data: { passwordHash: await bcrypt.hash(newPassword, 12) },
   });
+  audit("password_changed", { userId: user.id });
   return ok();
 }
 

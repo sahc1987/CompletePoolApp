@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { audit } from "@/lib/audit";
 import type { Role } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import {
@@ -51,12 +52,19 @@ export async function verifyCredentials(
   // Throttle first, and by the address typed rather than by account. Checking
   // the user before the lock would let response timing separate "no such
   // address" from "locked out".
-  if (await isLockedOut(email)) return null;
+  if (await isLockedOut(email)) {
+    audit("login_locked", { ip: input.ip });
+    return null;
+  }
   // The per-account lock can't see a spray — one password against forty
   // addresses leaves every account on a single failure. This can.
-  if (await isSourceBlocked(input.ip)) return null;
+  if (await isSourceBlocked(input.ip)) {
+    audit("login_locked", { ip: input.ip, detail: "source" });
+    return null;
+  }
 
-  const fail = async () => {
+  const fail = async (userId?: string) => {
+    audit("login_failed", { userId, ip: input.ip });
     await Promise.all([recordFailure(email), recordSourceFailure(input.ip)]);
     return null;
   };
@@ -67,7 +75,7 @@ export async function verifyCredentials(
   // branch: one strike, one null. Nothing distinguishes them.
   if (!user?.active) return fail();
   if (!(await bcrypt.compare(input.password, user.passwordHash))) {
-    return fail();
+    return fail(user.id);
   }
 
   await Promise.all([clearFailures(email), clearSourceFailures(input.ip)]);
