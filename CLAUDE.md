@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+@AGENTS.md
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Pool-service business app: a Next.js 14 web app (scheduling, worker tasks, materials, billing, estimates, KPIs) on Supabase Postgres via Prisma, plus an Expo app in `mobile/` for workers. Both talk to the same server-side service layer.
