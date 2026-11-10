@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 /**
  * Shared guard for the cron entry points.
  *
@@ -5,17 +7,22 @@
  * check the same shared secret the same way. Extracted because a second copy is
  * where one of them quietly stops checking.
  *
- * The header form is what Vercel Cron sends; `?key=` exists so the job can be
- * triggered by hand or by a scheduler that can't set headers.
+ * Vercel Cron sends the secret as `Authorization: Bearer <CRON_SECRET>`. The
+ * secret is never accepted in the URL, where it would end up in access logs.
+ *
+ * With no secret set, the endpoints are open in development only. In
+ * production they refuse every request, so a forgotten variable fails closed.
  */
+function safeEqual(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
 export function cronRequestAllowed(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
-  // Unset means an unguarded endpoint — deliberate, so the app runs with no
-  // configuration in development.
-  if (!secret) return true;
+  if (!secret) return process.env.NODE_ENV !== "production";
 
-  const auth = req.headers.get("authorization");
-  if (auth === `Bearer ${secret}`) return true;
-
-  return new URL(req.url).searchParams.get("key") === secret;
+  const auth = req.headers.get("authorization") ?? "";
+  return safeEqual(auth, `Bearer ${secret}`);
 }
