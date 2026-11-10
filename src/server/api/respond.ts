@@ -131,10 +131,10 @@ export function handle(
 ) {
   return async (
     req: Request,
-    ctx: { params: Record<string, string> }
+    ctx: { params: Promise<Record<string, string>> }
   ): Promise<Response> => {
     try {
-      return await fn(req, ctx);
+      return await fn(req, { params: await ctx?.params });
     } catch (e) {
       // Logged for us; the caller is told nothing about what broke.
       console.error(`[api] ${req.method} ${new URL(req.url).pathname}`, e);

@@ -55,10 +55,11 @@ function yearsSince(value: Date | string): number | null {
 }
 
 export default async function TeamMemberPage({
-  params,
+  params: paramsP,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const params = await paramsP;
   const session = await requirePageSession("ADMIN", "OWNER");
 
   // Pay history and the weekly hours breakdown — including the business-zone

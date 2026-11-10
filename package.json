@@ -19,6 +19,7 @@
     "test:coverage": "jest --coverage"
   },
   "dependencies": {
+    "@fullcalendar/core": "^6.1.22",
     "@fullcalendar/daygrid": "^6.1.11",
     "@fullcalendar/interaction": "^6.1.11",
     "@fullcalendar/react": "^6.1.11",
@@ -26,17 +27,18 @@
     "@prisma/client": "^5.15.0",
     "@react-pdf/renderer": "^3.4.0",
     "@supabase/storage-js": "^2.116.0",
+    "@testing-library/dom": "^10.4.2",
     "bcryptjs": "^2.4.3",
     "jose": "^4.15.9",
     "leaflet": "^1.9.4",
-    "next": "^14.2.0",
+    "next": "^16.4.6",
     "next-auth": "^4.24.0",
     "qrcode": "^1.5.4",
     "react": "^18.3.0",
     "react-dom": "^18.3.0",
     "react-leaflet": "^4.2.1",
     "stripe": "^23.0.0",
-    "zod": "^3.23.0"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.9.1",

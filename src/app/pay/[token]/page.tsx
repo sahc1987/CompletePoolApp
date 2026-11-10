@@ -17,7 +17,8 @@ export const metadata: Metadata = {
  * invoice. Public — the token in the URL is the credential. Shows the invoice
  * and sends them to Stripe's hosted checkout for the full balance.
  */
-export default async function PayPage({ params }: { params: { token: string } }) {
+export default async function PayPage({ params: paramsP }: { params: Promise<{ token: string }> }) {
+  const params = await paramsP;
   const invoice = await getPublicInvoice(params.token);
   if (!invoice) notFound();
 

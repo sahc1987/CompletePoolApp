@@ -43,10 +43,11 @@ function fmtDate(d: Date | string | null | undefined) {
 }
 
 export default async function EstimateDetailPage({
-  params,
+  params: paramsP,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const params = await paramsP;
   const session = await requirePageSession("ADMIN", "WORKER");
 
   const result = await getEstimate(session.user, params.id);

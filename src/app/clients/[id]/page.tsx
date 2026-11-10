@@ -11,10 +11,11 @@ import { deleteClient, deletePool } from "../actions";
 import { requirePageSession } from "@/lib/guard";
 
 export default async function ClientDetailPage({
-  params,
+  params: paramsP,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const params = await paramsP;
   const session = await requirePageSession("ADMIN");
 
   const result = await getClient(session.user, params.id);

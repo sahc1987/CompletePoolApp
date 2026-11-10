@@ -17,12 +17,14 @@ export const metadata: Metadata = {
  * sees the right answer straight away.
  */
 export default async function PayDonePage({
-  params,
-  searchParams,
+  params: paramsP,
+  searchParams: searchParamsP,
 }: {
-  params: { token: string };
-  searchParams: { session_id?: string };
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ session_id?: string }>;
 }) {
+  const params = await paramsP;
+  const searchParams = await searchParamsP;
   const outcome = await confirmReturn(params.token, searchParams.session_id ?? "");
   const invoice = outcome === "invalid" ? null : await getPublicInvoice(params.token);
 

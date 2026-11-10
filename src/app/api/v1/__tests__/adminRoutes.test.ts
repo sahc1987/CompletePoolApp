@@ -56,7 +56,7 @@ import { GET as kpiGET } from "../kpi/route";
 import { PATCH as servicePATCH } from "../settings/services/[id]/route";
 
 const call = (
-  handler: (req: Request, ctx: { params: Record<string, string> }) => Promise<Response>,
+  handler: (req: Request, ctx: { params: Promise<Record<string, string>> }) => Promise<Response>,
   role: string,
   params: Record<string, string>,
   body?: unknown
@@ -67,7 +67,7 @@ const call = (
       headers: { authorization: `Bearer ${role}`, "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
-    { params }
+    { params: Promise.resolve(params) }
   );
 
 beforeEach(() => {
@@ -126,7 +126,7 @@ describe("team", () => {
         headers: { authorization: "Bearer ADMIN", "content-type": "application/json" },
         body: JSON.stringify({ hourlyRate: "22.5", hiredOn: "2026-01-05" }),
       }),
-      { params: { id: "w9" } }
+      { params: Promise.resolve({ id: "w9" }) }
     );
     expect(res.status).toBe(204);
     expect(users.saveEmployment).toHaveBeenCalledWith(

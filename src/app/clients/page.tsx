@@ -26,10 +26,11 @@ const PER_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_PER = 25;
 
 export default async function ClientsPage({
-  searchParams,
+  searchParams: searchParamsP,
 }: {
-  searchParams: { q?: string; per?: string; page?: string };
+  searchParams: Promise<{ q?: string; per?: string; page?: string }>;
 }) {
+  const searchParams = await searchParamsP;
   const session = await requirePageSession("ADMIN");
 
   const q = (searchParams.q ?? "").trim();

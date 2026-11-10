@@ -130,9 +130,9 @@ const PER_OPTIONS = [10, 25, 50] as const;
 const DEFAULT_PER = 10;
 
 export default async function BillingPage({
-  searchParams,
+  searchParams: searchParamsP,
 }: {
-  searchParams: {
+  searchParams: Promise<{
     status?: string;
     sort?: string;
     dir?: string;
@@ -141,8 +141,9 @@ export default async function BillingPage({
     to?: string;
     per?: string;
     page?: string;
-  };
+  }>;
 }) {
+  const searchParams = await searchParamsP;
   const session = await requirePageSession("ADMIN", "OWNER");
 
   const isAdmin = session.user.role === "ADMIN";
