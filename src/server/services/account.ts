@@ -20,7 +20,7 @@ export async function updateProfile(
   input: UpdateProfileInput
 ): Promise<ServiceResult<void>> {
   const parsed = updateProfileSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   await prisma.user.update({
     where: { id: actor.id },
@@ -37,7 +37,7 @@ export async function changePassword(
   input: ChangePasswordInput
 ): Promise<ServiceResult<void>> {
   const parsed = changePasswordSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { currentPassword, newPassword } = parsed.data;
 
   const user = await prisma.user.findUnique({ where: { id: actor.id } });

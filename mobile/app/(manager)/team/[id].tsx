@@ -145,7 +145,7 @@ export default function TeamMember() {
     const input = { hourlyRate: rate, hiredOn, birthday, note: rateNote };
     const parsed = saveEmploymentSchema.safeParse({ userId: person.id, ...input });
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
     void run("employment", () => teamApi.saveEmployment(person.id, input), "Saved.").then((ok) => ok && setRateNote(""));

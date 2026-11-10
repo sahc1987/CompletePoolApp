@@ -1,4 +1,4 @@
-import type { z, ZodTypeAny } from "zod";
+import type { z, ZodType } from "zod";
 import { NextResponse } from "next/server";
 import type { ServiceError, ServiceErrorCode, ServiceResult } from "@/server/result";
 
@@ -102,7 +102,7 @@ export async function readJson(
  * with the field's own message before any work starts, and the route hands the
  * service a typed value instead of an `unknown` it must cast.
  */
-export async function parseBody<S extends ZodTypeAny>(
+export async function parseBody<S extends ZodType>(
   req: Request,
   schema: S
 ): Promise<
@@ -115,7 +115,7 @@ export async function parseBody<S extends ZodTypeAny>(
   if (!parsed.success) {
     return {
       ok: false,
-      response: apiError("VALIDATION", parsed.error.errors[0].message),
+      response: apiError("VALIDATION", parsed.error.issues[0].message),
     };
   }
   return { ok: true, data: parsed.data };

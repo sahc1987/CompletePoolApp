@@ -27,7 +27,7 @@ export async function saveMaterial(
   if (denied) return denied;
 
   const parsed = saveMaterialSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { id, ...data } = parsed.data;
 
   // quantityOnHand is intentionally NOT editable here — it only moves through
@@ -47,7 +47,7 @@ export async function toggleMaterial(
   if (denied) return denied;
 
   const parsed = toggleMaterialSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const material = await prisma.material.findUnique({
     where: { id: parsed.data.id },
@@ -73,7 +73,7 @@ export async function adjustStock(
   if (denied) return denied;
 
   const parsed = adjustStockSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { materialId, type, quantity, note } = parsed.data;
   if (quantity === 0) return invalid("Quantity can't be zero");
 
@@ -104,7 +104,7 @@ export async function respondMaterialRequest(
   if (denied) return denied;
 
   const parsed = respondMaterialRequestSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { requestId, decision, note } = parsed.data;
 
   const req = await prisma.materialRequest.findUnique({

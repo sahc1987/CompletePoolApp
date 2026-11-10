@@ -38,7 +38,7 @@ export async function saveService(
   if (denied) return denied;
 
   const parsed = saveServiceSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { id, ...data } = parsed.data;
 
   if (id) {
@@ -66,7 +66,7 @@ export async function deleteService(
   if (denied) return denied;
 
   const parsed = deleteServiceSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const count = await prisma.task.count({
     where: { serviceId: parsed.data.id },
@@ -88,7 +88,7 @@ export async function saveWorkHours(
   if (denied) return denied;
 
   const parsed = saveWorkHoursSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const startMin = hhmmToMin(parsed.data.workdayStart);
   const endMin = hhmmToMin(parsed.data.workdayEnd);
@@ -132,7 +132,7 @@ export async function saveExtra(
   if (denied) return denied;
 
   const parsed = saveExtraSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { id, ...data } = parsed.data;
 
   const saved = id
@@ -149,7 +149,7 @@ export async function deleteExtra(
   if (denied) return denied;
 
   const parsed = deleteExtraSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const count = await prisma.taskExtra.count({
     where: { extraServiceId: parsed.data.id },
@@ -171,7 +171,7 @@ export async function saveTaxRate(
   if (denied) return denied;
 
   const parsed = saveTaxRateSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { id, ...data } = parsed.data;
 
   const saved = id
@@ -193,7 +193,7 @@ export async function toggleTaxRate(
   if (denied) return denied;
 
   const parsed = toggleTaxRateSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const rate = await prisma.taxRate.findUnique({
     where: { id: parsed.data.id },
@@ -221,7 +221,7 @@ export async function saveCompanyInfo(
   if (denied) return denied;
 
   const parsed = companyInfoSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const c = parsed.data;
 
   const data = {

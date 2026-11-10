@@ -45,7 +45,7 @@ export async function startTask(
   if (denied) return denied;
 
   const parsed = startTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const task = await loadOwnTask(parsed.data.taskId, actor.id);
   if (!task) return notFound("Task not found.");
@@ -71,7 +71,7 @@ export async function submitTask(
   if (denied) return denied;
 
   const parsed = submitTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId, usage } = parsed.data;
 
   const task = await loadOwnTask(taskId, actor.id);
@@ -119,7 +119,7 @@ export async function createMaterialRequest(
   if (denied) return denied;
 
   const parsed = createMaterialRequestSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const d = parsed.data;
 
   // If tied to a task, make sure it's the worker's own job.

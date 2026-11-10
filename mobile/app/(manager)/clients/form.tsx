@@ -59,7 +59,7 @@ export default function ClientForm() {
     const input = { name, phone, email, address, notes };
     const parsed = clientFieldsSchema.safeParse(input);
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
     setBusy(true);

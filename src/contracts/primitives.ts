@@ -13,10 +13,8 @@ import { z } from "zod";
 /** Accepts `"12.5"` or `12.5`. Use instead of a bare `z.coerce.number()`. */
 export function numeric(message?: string) {
   return z
-    .union([z.string(), z.number()], {
-      errorMap: () => ({ message: message ?? "Must be a number" }),
-    })
-    .pipe(z.coerce.number({ invalid_type_error: message ?? "Must be a number" }));
+    .union([z.string(), z.number()], { error: message ?? "Must be a number" })
+    .pipe(z.coerce.number({ error: message ?? "Must be a number" }));
 }
 
 /** A required money/quantity field that must be greater than zero. */
@@ -71,11 +69,11 @@ export const optionalEmail = z
  * body never are. Piping through `z.string()` keeps the input type honest and
  * still narrows the output.
  */
-export function choice<T extends [string, ...string[]]>(
-  schema: z.ZodEnum<T>,
+export function choice<T extends string>(
+  schema: { options: readonly T[] },
   message: string
 ) {
   return z
-    .string({ required_error: message, invalid_type_error: message })
-    .pipe(z.enum(schema.options, { errorMap: () => ({ message }) }));
+    .string({ error: message })
+    .pipe(z.enum(schema.options as unknown as readonly [T, ...T[]], { error: message }));
 }

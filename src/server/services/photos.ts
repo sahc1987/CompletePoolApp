@@ -123,7 +123,7 @@ export async function requestPhotoUpload(
   if (!photoStorageConfigured()) return unavailable();
 
   const parsed = requestPhotoUploadSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId, type, contentType } = parsed.data;
 
   const found = await loadWritableTask(actor, taskId);
@@ -155,7 +155,7 @@ export async function confirmPhotoUpload(
   if (!photoStorageConfigured()) return unavailable();
 
   const parsed = confirmPhotoUploadSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId, type, path } = parsed.data;
 
   const found = await loadWritableTask(actor, taskId);
@@ -220,7 +220,7 @@ export async function deletePhoto(
   if (denied) return denied;
 
   const parsed = deletePhotoSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const photo = await prisma.photo.findUnique({
     where: { id: parsed.data.photoId },

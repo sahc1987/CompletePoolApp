@@ -47,7 +47,7 @@ export async function payBill(
   if (denied) return denied;
 
   const parsed = payBillSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   // Close any online checkout first, so the customer can't also pay the old
   // balance while this is being written.
@@ -65,7 +65,7 @@ export async function reverseBillPayments(
   if (denied) return denied;
 
   const parsed = reverseBillSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const res = await resetBillPayments(
     parsed.data.billId,
@@ -89,7 +89,7 @@ export async function chargeTask(
   if (denied) return denied;
 
   const parsed = chargeTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId, ...payment } = parsed.data;
 
   // A bill is raised for finished work only. Without this, charging a job

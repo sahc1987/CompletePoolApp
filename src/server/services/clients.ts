@@ -29,7 +29,7 @@ export async function createClient(
   if (denied) return denied;
 
   const parsed = clientFieldsSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { name, phone, email, address, notes } = parsed.data;
 
   const client = await prisma.client.create({
@@ -52,7 +52,7 @@ export async function updateClient(
   if (denied) return denied;
 
   const parsed = updateClientSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { id, name, phone, email, address, notes } = parsed.data;
 
   await prisma.client.update({
@@ -80,7 +80,7 @@ export async function deleteClient(
   if (denied) return denied;
 
   const parsed = deleteClientSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { id } = parsed.data;
 
   const [taskCount, estimateCount] = await Promise.all([
@@ -106,7 +106,7 @@ export async function createPool(
   if (denied) return denied;
 
   const parsed = createPoolSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { clientId, address, size, type } = parsed.data;
 
   const pool = await prisma.pool.create({
@@ -123,7 +123,7 @@ export async function updatePool(
   if (denied) return denied;
 
   const parsed = updatePoolSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { id, address, size, type } = parsed.data;
 
   const before = await prisma.pool.findUnique({
@@ -154,7 +154,7 @@ export async function deletePool(
   if (denied) return denied;
 
   const parsed = deletePoolSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const taskCount = await prisma.task.count({
     where: { poolId: parsed.data.id },

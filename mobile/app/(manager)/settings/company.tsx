@@ -52,7 +52,7 @@ export default function CompanySettings() {
     if (busy) return;
     const parsed = companyInfoSchema.safeParse(form);
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
     setBusy(true);

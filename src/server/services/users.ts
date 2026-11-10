@@ -84,7 +84,7 @@ export async function saveEmployment(
   if (denied) return denied;
 
   const parsed = saveEmploymentSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { userId, note } = parsed.data;
 
   const hourlyRate =
@@ -132,7 +132,7 @@ export async function setUserRole(
   if (denied) return denied;
 
   const parsed = setUserRoleSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { userId, role } = parsed.data;
 
   // Changing your own role is how you accidentally lock yourself out.
@@ -185,7 +185,7 @@ export async function toggleUserActive(
   if (denied) return denied;
 
   const parsed = toggleUserActiveSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { userId } = parsed.data;
 
   if (userId === actor.id) {
@@ -227,7 +227,7 @@ export async function createUser(
   if (denied) return denied;
 
   const parsed = createUserSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { name, email, phone, role, password } = parsed.data;
 
   // Creating the account sets its first password, so minting one above your own
@@ -267,7 +267,7 @@ export async function resetUserPassword(
   if (denied) return denied;
 
   const parsed = resetUserPasswordSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const found = await loadAdministrableTarget(actor.role, parsed.data.userId);
   if (isTargetError(found)) return found.error;

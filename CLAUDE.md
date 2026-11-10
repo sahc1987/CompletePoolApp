@@ -81,6 +81,6 @@ Seed only the calls a test asserts on. Service tests also mock `@/lib/notify`.
 Expo SDK 57, expo-router, RN 0.86. Read `mobile/README.md` and `mobile/AGENTS.md` before changing it. The SDK has changed, so check the v57 docs. The root `tsconfig.json` and `jest.config.js` exclude `mobile/`, which has its own.
 - Run `npm run bundle:check` before committing anything that touches imports. tsc resolves imports through tsconfig paths and Metro through `metro.config.js`, and the two can disagree.
 - `metro.config.js` needs both `watchFolders` and `nodeModulesPaths` for `@contracts/*`. Do **not** set `disableHierarchicalLookup`, and do **not** add a `babel.config.js`.
-- zod is pinned to 3.x to match the web app. `expo install zod` pulls v4 and breaks the shared contracts.
+- zod is on 4.x in both the web app and mobile (the shared contracts need one version). Keep the two in step; use `.issues`, not `.errors`, and `{ error: ... }`, not `errorMap`.
 - Tokens go in SecureStore, never AsyncStorage. Token refresh in `src/api/client.ts` is single-flight: concurrent refreshes would look like a replay and sign the user out.
 - To test against local dev, set `EXPO_PUBLIC_API_URL` to the machine's LAN IP, not `localhost`. It defaults to production.

@@ -45,7 +45,7 @@ export default function NewTeamMember() {
     const input = { name, email, phone, role, password };
     const parsed = createUserSchema.safeParse(input);
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
     setBusy(true);

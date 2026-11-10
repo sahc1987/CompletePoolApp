@@ -106,7 +106,7 @@ export default function EstimateScreen() {
     const line = { description, quantity, unitPrice };
     const parsed = addLineItemSchema.safeParse({ estimateId: id, ...line });
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
     const done = await act(() => estimatesApi.addLine(id, line), "Couldn't add the line.");

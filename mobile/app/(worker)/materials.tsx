@@ -93,7 +93,7 @@ export default function RequestMaterials() {
     // round trip.
     const parsed = createMaterialRequestSchema.safeParse(input);
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
 

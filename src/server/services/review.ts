@@ -24,7 +24,7 @@ export async function approveTask(
   if (denied) return denied;
 
   const parsed = approveTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId } = parsed.data;
 
   const task = await prisma.task.findUnique({
@@ -62,7 +62,7 @@ export async function flagTask(
   if (denied) return denied;
 
   const parsed = flagTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId, reason } = parsed.data;
 
   const task = await prisma.task.findUnique({

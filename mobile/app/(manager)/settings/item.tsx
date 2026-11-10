@@ -90,7 +90,7 @@ export default function CatalogItem() {
     if (kind === "service") {
       const input = { name, basePrice: amount, defaultDurationMin: duration };
       const parsed = serviceFieldsSchema.safeParse(input);
-      if (!parsed.success) return setError(parsed.error.errors[0].message);
+      if (!parsed.success) return setError(parsed.error.issues[0].message);
       void attempt(
         () => (id ? settingsApi.updateService(id, input) : settingsApi.createService(input)),
         "Couldn't save the service."
@@ -98,7 +98,7 @@ export default function CatalogItem() {
     } else if (kind === "extra") {
       const input = { name, price: amount };
       const parsed = extraFieldsSchema.safeParse(input);
-      if (!parsed.success) return setError(parsed.error.errors[0].message);
+      if (!parsed.success) return setError(parsed.error.issues[0].message);
       void attempt(
         () => (id ? settingsApi.updateExtra(id, input) : settingsApi.createExtra(input)),
         "Couldn't save the add-on."
@@ -106,7 +106,7 @@ export default function CatalogItem() {
     } else {
       const input = { name, rate: amount };
       const parsed = taxRateFieldsSchema.safeParse(input);
-      if (!parsed.success) return setError(parsed.error.errors[0].message);
+      if (!parsed.success) return setError(parsed.error.issues[0].message);
       void attempt(
         () => (id ? settingsApi.updateTaxRate(id, input) : settingsApi.createTaxRate(input)),
         "Couldn't save the tax rate."

@@ -61,7 +61,7 @@ export default function SettingsScreen() {
     const input = { workdayStart: start.trim(), workdayEnd: end.trim(), timezone: timezone.trim() };
     const parsed = saveWorkHoursSchema.safeParse(input);
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
     const doSave = async () => {

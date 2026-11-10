@@ -122,7 +122,7 @@ export default function TaskDetail() {
     // round trip that may not complete.
     const parsed = submitTaskSchema.safeParse({ taskId: task!.id, usage });
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
 

@@ -95,7 +95,7 @@ export async function createTask(
   if (denied) return denied;
 
   const parsed = createTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const d = parsed.data;
 
   // Guard against a pool that doesn't belong to the chosen client.
@@ -225,7 +225,7 @@ export async function rescheduleTask(
   if (denied) return denied;
 
   const parsed = rescheduleTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId, startISO } = parsed.data;
 
   const start = new Date(startISO);
@@ -293,7 +293,7 @@ export async function editTask(
   if (denied) return denied;
 
   const parsed = editTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const d = parsed.data;
 
   const before = await prisma.task.findUnique({
@@ -445,7 +445,7 @@ export async function cancelTask(
   if (denied) return denied;
 
   const parsed = cancelTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId } = parsed.data;
 
   const task = await prisma.task.findUnique({
@@ -499,7 +499,7 @@ export async function endSeries(
   if (denied) return denied;
 
   const parsed = endSeriesSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId } = parsed.data;
 
   const task = await prisma.task.findUnique({
@@ -564,7 +564,7 @@ export async function finishTask(
   if (denied) return denied;
 
   const parsed = finishTaskSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { taskId, usage, override } = parsed.data;
 
   const task = await prisma.task.findUnique({

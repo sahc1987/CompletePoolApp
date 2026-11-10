@@ -167,7 +167,7 @@ export default function JobForm() {
     if (editing) {
       const input = { ...shared, applyToSeries: recurring && applyToSeries };
       const parsed = editTaskSchema.safeParse({ taskId: id, ...input });
-      if (!parsed.success) return setError(parsed.error.errors[0].message);
+      if (!parsed.success) return setError(parsed.error.issues[0].message);
       setBusy(true);
       try {
         await tasksApi.edit(id!, input);
@@ -191,7 +191,7 @@ export default function JobForm() {
       daysOfWeek,
     };
     const parsed = createTaskSchema.safeParse(input);
-    if (!parsed.success) return setError(parsed.error.errors[0].message);
+    if (!parsed.success) return setError(parsed.error.issues[0].message);
     setBusy(true);
     try {
       const res = await tasksApi.create(input);

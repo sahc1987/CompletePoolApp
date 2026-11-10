@@ -49,7 +49,7 @@ Don't:
 - Don't run migrations, seeds or writes against the live database without asking.
 - Don't import `@prisma/client` or `next` in `src/contracts/*`.
 - Don't reimplement stock decrement, the privilege ladder, the last-manager guard, or calendar price hiding.
-- Don't put tokens in AsyncStorage, set `disableHierarchicalLookup`, add a `babel.config.js` to mobile, or install zod 4.
+- Don't put tokens in AsyncStorage, set `disableHierarchicalLookup`, add a `babel.config.js` to mobile.
 - Don't leave Playwright screenshots behind.
 
 ## Definition of done for any change

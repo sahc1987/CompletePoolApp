@@ -81,7 +81,7 @@ export async function createEstimate(
   if (denied) return denied;
 
   const parsed = createEstimateSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const d = parsed.data;
 
   let clientId = d.clientId ?? "";
@@ -142,7 +142,7 @@ export async function addLineItem(
   if (denied) return denied;
 
   const parsed = addLineItemSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const d = parsed.data;
 
   if (!(await editableDraft(d.estimateId))) {
@@ -169,7 +169,7 @@ export async function deleteLineItem(
   if (denied) return denied;
 
   const parsed = deleteLineItemSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { estimateId, id } = parsed.data;
 
   if (!(await editableDraft(estimateId))) {
@@ -193,7 +193,7 @@ export async function addTax(
   if (denied) return denied;
 
   const parsed = addTaxSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { estimateId, taxRateId } = parsed.data;
 
   if (!(await editableDraft(estimateId))) {
@@ -231,7 +231,7 @@ export async function removeTax(
   if (denied) return denied;
 
   const parsed = removeTaxSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { estimateId, id } = parsed.data;
 
   if (!(await editableDraft(estimateId))) {
@@ -253,7 +253,7 @@ export async function presentEstimate(
   if (denied) return denied;
 
   const parsed = estimateIdSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { estimateId } = parsed.data;
 
   if (!(await editableDraft(estimateId))) {
@@ -281,7 +281,7 @@ export async function backToDraft(
   if (denied) return denied;
 
   const parsed = estimateIdSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
 
   const est = await prisma.estimate.findUnique({
     where: { id: parsed.data.estimateId },
@@ -306,7 +306,7 @@ export async function signEstimate(
   if (denied) return denied;
 
   const parsed = signEstimateSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const d = parsed.data;
 
   const est = await prisma.estimate.findUnique({
@@ -351,7 +351,7 @@ export async function scheduleEstimate(
   if (denied) return denied;
 
   const parsed = scheduleEstimateSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const d = parsed.data;
 
   const est = await prisma.estimate.findUnique({
@@ -396,7 +396,7 @@ export async function declineEstimate(
   if (denied) return denied;
 
   const parsed = declineEstimateSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { estimateId, declineReason } = parsed.data;
 
   const est = await prisma.estimate.findUnique({ where: { id: estimateId } });
@@ -429,7 +429,7 @@ export async function deleteEstimate(
   if (denied) return denied;
 
   const parsed = estimateIdSchema.safeParse(input);
-  if (!parsed.success) return invalid(parsed.error.errors[0].message);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
   const { estimateId } = parsed.data;
 
   const est = await prisma.estimate.findUnique({ where: { id: estimateId } });

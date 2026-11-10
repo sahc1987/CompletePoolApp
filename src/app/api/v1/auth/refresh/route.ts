@@ -27,7 +27,7 @@ export const POST = handle(async (req) => {
 
   const parsed = refreshSchema.safeParse(body.body);
   if (!parsed.success) {
-    return apiError("VALIDATION", parsed.error.errors[0].message);
+    return apiError("VALIDATION", parsed.error.issues[0].message);
   }
 
   const result = await rotateRefreshToken(parsed.data.refreshToken, {

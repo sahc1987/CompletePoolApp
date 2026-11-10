@@ -82,7 +82,7 @@ export default function MaterialScreen() {
     const input = { type: kind, quantity: quantity.trim(), note };
     const parsed = adjustStockSchema.safeParse({ materialId: material.id, ...input });
     if (!parsed.success) {
-      setError(parsed.error.errors[0].message);
+      setError(parsed.error.issues[0].message);
       return;
     }
     setBusy(true);
