@@ -6,6 +6,7 @@ import { Icon } from "@/components/icons";
 import { btnBlue, btnGhost, card, inputClass, labelClass } from "@/components/styles";
 import { money } from "@/lib/serialize";
 import { backfillBills, backfillLegacyPayments } from "@/lib/billing";
+import EmailInvoiceButton from "./EmailInvoiceButton";
 import PayForm from "./PayForm";
 import PaymentsButton from "./PaymentsButton";
 import UndoForm from "./UndoForm";
@@ -634,6 +635,13 @@ export default async function BillingPage({
                 <div className="mt-3 flex flex-wrap items-center gap-2">
                   <InvoiceButton data={invoice} />
                   {isAdmin && <PayLinkActions payUrl={b.payUrl} compact />}
+                  {isAdmin && balance > 0 && (
+                    <EmailInvoiceButton
+                      billId={b.id}
+                      clientName={b.task.client.name}
+                      email={b.task.client.email}
+                    />
+                  )}
                   {(row.periodPayments.length > 0 || row.periodReversals.length > 0) && (
                     <PaymentsButton
                       clientName={b.task.client.name}
@@ -762,6 +770,13 @@ export default async function BillingPage({
                         <div className="ml-auto flex max-w-[22rem] flex-wrap items-center justify-end gap-1.5">
                           <InvoiceButton data={invoice} />
                           <PayLinkActions payUrl={b.payUrl} compact />
+                          {balance > 0 && (
+                            <EmailInvoiceButton
+                              billId={b.id}
+                              clientName={b.task.client.name}
+                              email={b.task.client.email}
+                            />
+                          )}
                           {balance > 0 && (
                             <PayForm
                               billId={b.id}

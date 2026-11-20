@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/guard";
 import { opt, str } from "@/lib/formData";
 import * as billingService from "@/server/services/billing";
+import { emailInvoice } from "@/server/services/billEmail";
 import type { ActionState } from "@/lib/actions";
 
 // Record a payment against a bill. Admin-only — owner is read-only.
@@ -24,6 +25,17 @@ export async function payBill(
 
   revalidatePath("/billing");
   revalidatePath("/calendar");
+  return { ok: true };
+}
+
+// Email the invoice (PDF + pay link) to the client. Admin-only.
+export async function sendInvoiceEmail(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const res = await emailInvoice(actor, str(formData, "billId"));
+  if (!res.ok) return { error: res.error };
   return { ok: true };
 }
 

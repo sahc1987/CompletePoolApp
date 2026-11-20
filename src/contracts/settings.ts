@@ -81,3 +81,29 @@ export const companyInfoSchema = z.object({
   documentFooter: optionalText,
 });
 export type CompanyInfoInput = z.input<typeof companyInfoSchema>;
+
+/**
+ * The Gmail login used to email invoices. Saved only after a test login works.
+ * Google shows app passwords in groups of four with spaces, so spaces are
+ * ignored rather than rejected.
+ */
+export const emailSettingsSchema = z.object({
+  user: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .pipe(z.email("Enter the Gmail address that will send the invoices.")),
+  password: z
+    .string()
+    .transform((s) => s.replace(/\s+/g, ""))
+    .pipe(z.string().min(8, "Enter the app password Google gave you.").max(128)),
+  /** Shown to the customer as the sender's name. Blank = just the address. */
+  fromName: z
+    .string()
+    .trim()
+    .max(80, "Keep the sender name under 80 characters.")
+    .regex(/^[^\r\n]*$/, "The sender name can't contain line breaks.")
+    .optional()
+    .transform((v) => v || undefined),
+});
+export type EmailSettingsInput = z.input<typeof emailSettingsSchema>;

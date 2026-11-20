@@ -162,6 +162,15 @@ model AppSettings {
   // Closing line on both documents, e.g. warranty or thank-you wording.
   documentFooter String?
 
+  // Outgoing email (Settings -> Email), saved only after a successful test
+  // login. The password is AES-256-GCM encrypted with a key derived from
+  // NEXTAUTH_SECRET (server/crypto/secretBox.ts) — never stored or returned as
+  // plain text. Empty = email not set up.
+  smtpUser    String?
+  smtpPassEnc String?
+  // Display name shown to the customer ("Complete Pool Service").
+  smtpFrom    String?
+
   updatedAt DateTime @updatedAt
 }
 

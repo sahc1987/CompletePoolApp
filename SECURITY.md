@@ -26,6 +26,7 @@ Status: Complete
 | Client PII (name, phone, email, addresses) | Role-gated services; never logged |
 | Password hashes, refresh tokens | Hashed/rotating; replay detection; never returned by APIs or logged |
 | Payment data | Card data stays with Stripe (SAQ-A scope); only `stripePaymentIntentId` and check numbers are stored; pay links use a random `payToken` |
+| Email app password (Settings → Email) | Saved only after a successful test login; stored AES-256-GCM encrypted with a key derived from `NEXTAUTH_SECRET` (`src/server/crypto/secretBox.ts`); never returned by any read, API or log; hidden from the demo account. Rotating `NEXTAUTH_SECRET` makes it unreadable, so an admin re-enters it once |
 | Task photos and estimate signatures | Private `task-photos` bucket, short-lived signed URLs only; photos purged after 183 days; signature stored as base64 in the DB |
 
 ## Secrets management

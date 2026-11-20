@@ -131,3 +131,22 @@ export async function saveCompanyInfo(
   revalidatePath("/billing");
   return { ok: true };
 }
+
+// --- Outgoing email ------------------------------------------------------
+
+// Tests the Gmail login and saves it only if it works (see the service).
+export async function saveEmailSettings(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const res = await settingsService.saveEmailSettings(actor, {
+    user: str(formData, "user"),
+    password: str(formData, "password"),
+    fromName: opt(formData, "fromName"),
+  });
+  if (!res.ok) return { error: res.error };
+
+  revalidatePath("/settings");
+  return { ok: true };
+}

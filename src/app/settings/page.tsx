@@ -1,4 +1,6 @@
-import { getBusinessCatalog } from "@/server/services/catalogReads";
+import { getBusinessCatalog, getEmailSettings } from "@/server/services/catalogReads";
+import { isDemoUser } from "@/lib/demo";
+import EmailForm from "./EmailForm";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import DeleteButton from "@/components/DeleteButton";
@@ -80,6 +82,10 @@ export default async function SettingsPage() {
   if (!catalog.ok) throw new Error(catalog.error);
   const { services, extras, taxRates, hours, company } = catalog.data;
 
+  const emailRes = await getEmailSettings(session.user);
+  if (!emailRes.ok) throw new Error(emailRes.error);
+  const email = emailRes.data;
+
   const rowDelete =
     "rounded-full px-3 py-1.5 text-[13px] font-semibold text-faint transition hover:bg-danger/10 hover:text-danger";
 
@@ -101,6 +107,24 @@ export default async function SettingsPage() {
             </p>
           </div>
           <CompanyForm company={company} />
+        </section>
+
+        {/* Outgoing email */}
+        <section className={card}>
+          <div className="mb-3">
+            <h2 className="text-lg font-semibold text-ink">Email</h2>
+            <p className="mt-0.5 text-sm text-muted">
+              Connect a Gmail account so you can email invoices to customers
+              from Billing.
+            </p>
+          </div>
+          {/* The public demo shows the real settings page, so it never gets
+              the real address or sender name. */}
+          <EmailForm
+            connected={email.connected}
+            user={isDemoUser(session.user) ? null : email.user}
+            fromName={isDemoUser(session.user) ? null : email.fromName}
+          />
         </section>
 
         {/* Business hours */}

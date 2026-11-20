@@ -162,3 +162,24 @@ export async function getBusinessCatalog(
 
   return ok({ services, extras, taxRates, hours, company });
 }
+
+/**
+ * Whether email is set up, for the Settings card. Never includes the password
+ * or anything derived from it.
+ */
+export async function getEmailSettings(
+  actor: Actor
+): Promise<ServiceResult<{ connected: boolean; user: string | null; fromName: string | null }>> {
+  const denied = assertRole(actor, "ADMIN");
+  if (denied) return denied;
+
+  const s = await prisma.appSettings.findUnique({
+    where: { id: "app" },
+    select: { smtpUser: true, smtpPassEnc: true, smtpFrom: true },
+  });
+  return ok({
+    connected: Boolean(s?.smtpUser && s.smtpPassEnc),
+    user: s?.smtpUser ?? null,
+    fromName: s?.smtpFrom ?? null,
+  });
+}

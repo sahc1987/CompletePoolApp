@@ -24,7 +24,7 @@ Prisma (`prisma/schema.prisma`). Only `src/server/services/*` touch Prisma; page
 - **MaterialRequest**: workerId, materialId?, quantityRequested, taskId?, urgent, status.
 - **StockMovement**: materialId, type, signed quantity, taskId?, note.
 - **Estimate** (+ **EstimateLineItem**, **EstimateTax**, **TaxRate**): client, pool?, status, signature data, snapshotted subtotal/taxTotal/total, convertedTaskId (unique).
-- **AppSettings**: business timezone, business hours and other global settings.
+- **AppSettings**: business timezone, business hours, company details and other global settings. Includes the outgoing-email login (`smtpUser`, encrypted `smtpPassEnc`, `smtpFrom`), empty until an admin completes Settings → Email.
 - **Notification**: userId, read.
 - **RefreshToken**, **ApiRateLimit**, **LoginAttempt**, **LoginSource**: auth and abuse protection.
 

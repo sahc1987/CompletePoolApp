@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { notifyAll } from "@/lib/notify";
 import { hhmmToMin, isValidTimezone } from "@/lib/schedule";
 import { assertRole, type Actor } from "@/server/actor";
+import { seal } from "@/server/crypto/secretBox";
+import { verifyLogin } from "@/server/email/mailer";
 import {
   conflict,
   invalid,
@@ -18,7 +20,9 @@ import {
   saveWorkHoursSchema,
   toggleTaxRateSchema,
   companyInfoSchema,
+  emailSettingsSchema,
   type CompanyInfoInput,
+  type EmailSettingsInput,
   type DeleteExtraInput,
   type DeleteServiceInput,
   type SaveExtraInput,
@@ -242,4 +246,42 @@ export async function saveCompanyInfo(
     create: { id: "app", ...data },
   });
   return ok();
+}
+
+// --- Outgoing email ------------------------------------------------------
+
+/**
+ * Connect the Gmail account that sends invoices. The login is tested first and
+ * nothing is saved unless Google accepts it, so a half-finished or mistyped
+ * setup can never leave the app thinking email works.
+ */
+export async function saveEmailSettings(
+  actor: Actor,
+  input: EmailSettingsInput
+): Promise<ServiceResult<{ user: string }>> {
+  const denied = assertRole(actor, "ADMIN");
+  if (denied) return denied;
+
+  const parsed = emailSettingsSchema.safeParse(input);
+  if (!parsed.success) return invalid(parsed.error.issues[0].message);
+  const { user, password, fromName } = parsed.data;
+
+  try {
+    await verifyLogin(user, password);
+  } catch {
+    // Google's reason can echo the account, and "wrong password" and "no
+    // network" look alike from here, so the message covers both and says what
+    // to do. The error itself is not logged or returned.
+    return invalid(
+      "Google didn't accept that address and app password, so nothing was saved. Check both (it must be an app password, not your normal one) and try again."
+    );
+  }
+
+  const data = { smtpUser: user, smtpPassEnc: seal(password), smtpFrom: fromName ?? null };
+  await prisma.appSettings.upsert({
+    where: { id: "app" },
+    update: data,
+    create: { id: "app", ...data },
+  });
+  return ok({ user });
 }
