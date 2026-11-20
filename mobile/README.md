@@ -127,6 +127,27 @@ That import crosses out of this project, which needs both `watchFolders` and
 `zod` is pinned to the same version as the web app on purpose — two majors of
 zod would defeat the point of sharing.
 
+### Working with no signal (workers)
+
+`src/offline/outbox.ts`. With no signal a worker can still open today's jobs
+(a saved copy of the last list and material catalog), start a job, submit it,
+and take before/after photos. Each of those is queued on the phone and sent,
+oldest first, when signal returns (`useOutboxSync` retries on launch, on
+returning to the app, and every 30 seconds). The list shows how many changes
+are waiting; a change the server refuses on replay (say an admin cancelled the
+job meanwhile) is shown once on the list with the reason, then dismissed.
+
+- "Offline" means the request never reached the server (`ApiError` OFFLINE,
+  status 0). There is no network-status module: it would need a new APK, and
+  this ships over the air. Add one if 30-second polling proves too slow.
+- Replays are safe because the server treats a repeated `start`/`submit` as
+  done (`src/server/services/worker.ts`) — stock is never counted twice.
+- Files are per signed-in user, in the app's document directory.
+- Known limit: the day headings ("Today", "Tomorrow") come from the saved copy,
+  so a phone offline past midnight shows yesterday's grouping until it
+  reconnects. The app does no date arithmetic, by design.
+- Not queued: material requests and on-site estimates still need signal.
+
 ### Things that are the way they are for a reason
 
 - **Dates.** The app never works out what day a job is on. The server sends a

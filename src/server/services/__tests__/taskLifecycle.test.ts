@@ -84,6 +84,24 @@ describe("the task state machine", () => {
     expect(prismaMock.task.update).not.toHaveBeenCalled();
   });
 
+  // The mobile app queues start/submit offline and may send one twice.
+  it("treats a repeated start as done", async () => {
+    seedTask({ status: "IN_PROGRESS" });
+    const res = await startTask(worker, { taskId: "t1" });
+    expect(res.ok).toBe(true);
+    expect(prismaMock.task.update).not.toHaveBeenCalled();
+  });
+
+  it("treats a repeated submit as done, without counting stock again", async () => {
+    seedTask({ status: "SUBMITTED" });
+    const res = await submitTask(worker, {
+      taskId: "t1",
+      usage: [{ materialId: "m1", qty: 2 }],
+    });
+    expect(res.ok).toBe(true);
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+  });
+
   it("won't submit a job that isn't in progress", async () => {
     seedTask({ status: "SCHEDULED" });
     const res = await submitTask(worker, { taskId: "t1", usage: [] });

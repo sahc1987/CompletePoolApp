@@ -121,11 +121,17 @@ export const me = {
   }) => api.post<void>("/me/password", fields),
 };
 
+const FAST_MS = 8_000;
+
 export const tasks = {
-  mine: () => api.get<TaskListResponse<WorkerTask>>("/tasks?view=mine"),
-  start: (taskId: string) => api.post<void>(`/tasks/${taskId}/start`),
+  // ponytail: 8s, not 20 — these three are queued offline, so a dead signal
+  // should be noticed quickly rather than after a spinner of 20 seconds.
+  mine: () =>
+    api.get<TaskListResponse<WorkerTask>>("/tasks?view=mine", { timeoutMs: FAST_MS }),
+  start: (taskId: string) =>
+    api.post<void>(`/tasks/${taskId}/start`, undefined, { timeoutMs: FAST_MS }),
   submit: (taskId: string, usage: MaterialUsageInput[]) =>
-    api.post<void>(`/tasks/${taskId}/submit`, { usage }),
+    api.post<void>(`/tasks/${taskId}/submit`, { usage }, { timeoutMs: FAST_MS }),
 
   // --- Admin ---------------------------------------------------------------
   /** Jobs submitted and waiting on an admin's approve/flag. */
@@ -216,7 +222,7 @@ export const scheduling = {
 
 export const materials = {
   /** Active catalog only — what can go on new work. Names and units, no prices. */
-  usable: () => api.get<MaterialOption[]>("/materials"),
+  usable: () => api.get<MaterialOption[]>("/materials", { timeoutMs: FAST_MS }),
 };
 
 export type MaterialRequest = {

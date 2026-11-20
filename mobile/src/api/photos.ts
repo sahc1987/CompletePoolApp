@@ -31,10 +31,12 @@ export const photos = {
   list: (taskId: string) => api.get<TaskPhoto[]>(`/tasks/${taskId}/photos`),
 
   requestUpload: (taskId: string, type: PhotoTypeValue, contentType: string) =>
-    api.post<SignedUpload>(`/tasks/${taskId}/photos/upload-url`, {
-      type,
-      contentType,
-    }),
+    api.post<SignedUpload>(
+      `/tasks/${taskId}/photos/upload-url`,
+      { type, contentType },
+      // Fail fast with no signal so the photo is queued quickly.
+      { timeoutMs: 8_000 }
+    ),
 
   confirm: (taskId: string, type: PhotoTypeValue, path: string) =>
     api.post<{ id: string }>(`/tasks/${taskId}/photos`, { type, path }),
@@ -132,11 +134,23 @@ export async function uploadTaskPhoto(
   type: PhotoTypeValue,
   localUri: string
 ): Promise<TaskPhoto> {
-  const contentType = "image/jpeg";
   const compressed = await compressForUpload(localUri);
+  return uploadCompressed(taskId, type, compressed);
+}
 
+/**
+ * Steps 2-4 on a file that is already shrunk. The offline outbox keeps the
+ * compressed copy and calls this when signal returns, so a signed URL is only
+ * requested at the moment it can actually be used.
+ */
+export async function uploadCompressed(
+  taskId: string,
+  type: PhotoTypeValue,
+  compressedUri: string
+): Promise<TaskPhoto> {
+  const contentType = "image/jpeg";
   const signed = await photos.requestUpload(taskId, type, contentType);
-  await putWithRetry(signed.uploadUrl, compressed, contentType);
+  await putWithRetry(signed.uploadUrl, compressedUri, contentType);
   const created = await photos.confirm(taskId, type, signed.path);
 
   return {

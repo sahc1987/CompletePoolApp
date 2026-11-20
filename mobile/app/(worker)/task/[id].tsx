@@ -2,13 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { Alert, Linking, StyleSheet, Text, View } from "react-native";
 import { ApiError } from "@/api/client";
-import {
-  materials as materialsApi,
-  tasks as tasksApi,
-  type BusinessDay,
-  type MaterialOption,
-  type WorkerTask,
-} from "@/api/endpoints";
+import type { BusinessDay, MaterialOption, WorkerTask } from "@/api/endpoints";
+import { loadCatalog, loadTasks, startTask, submitTask } from "@/offline/outbox";
 import { submitTaskSchema, type MaterialUsageInput } from "@contracts/worker";
 import {
   Body,
@@ -51,13 +46,12 @@ export default function TaskDetail() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [list, mats] = await Promise.all([
-        tasksApi.mine(),
-        materialsApi.usable(),
-      ]);
-      const found = list.tasks.find((t) => t.id === id) ?? null;
+      // Both fall back to the phone's saved copy with no signal, so a job can
+      // still be opened, started and submitted (see offline/outbox.ts).
+      const [loaded, mats] = await Promise.all([loadTasks(), loadCatalog()]);
+      const found = loaded.list.tasks.find((t) => t.id === id) ?? null;
       setTask(found);
-      setBusinessDay(list.businessDay);
+      setBusinessDay(loaded.list.businessDay);
       setCatalog(mats);
       setError(
         found
@@ -111,7 +105,7 @@ export default function TaskDetail() {
 
   const start = () =>
     act(
-      () => tasksApi.start(task!.id),
+      () => startTask(task!.id),
       "Couldn't start this job. Try again."
     );
 
@@ -138,7 +132,7 @@ export default function TaskDetail() {
           text: "Submit",
           onPress: () =>
             void act(
-              () => tasksApi.submit(task!.id, usage),
+              () => submitTask(task!.id, usage),
               "Couldn't submit this job. Your entries are still here — try again."
             ),
         },

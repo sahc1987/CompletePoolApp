@@ -2,6 +2,7 @@ import { Redirect, Tabs } from "expo-router";
 import type { ColorValue } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/auth/AuthContext";
+import { useOutboxSync } from "@/offline/useOutboxSync";
 import { Icon, Loading, Screen, type IconName } from "@/ui/components";
 import { color, radius, shadow } from "@/ui/theme";
 
@@ -22,6 +23,9 @@ const icon =
 export default function WorkerLayout() {
   const { status, user } = useAuth();
   const insets = useSafeAreaInsets();
+  // Replays anything the worker did with no signal. Must sit above the early
+  // returns below (hooks can't be conditional).
+  useOutboxSync(status === "authenticated" && user.role === "WORKER");
 
   if (status === "restoring") {
     return (

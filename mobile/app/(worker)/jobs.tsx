@@ -71,8 +71,21 @@ function JobCard({
 
 export default function MyDay() {
   const router = useRouter();
-  const { groups, businessDay, loading, refreshing, error, retryable, reload, refresh } =
-    useTasks();
+  const {
+    groups,
+    businessDay,
+    loading,
+    refreshing,
+    error,
+    retryable,
+    offline,
+    savedAt,
+    pending,
+    failures,
+    dismissFailures,
+    reload,
+    refresh,
+  } = useTasks();
 
   // Coming back from a job that was just started or submitted, the list is
   // stale. Refreshing on focus is what makes the card's status match what the
@@ -100,6 +113,31 @@ export default function MyDay() {
     >
       {!!error && (
         <ErrorNotice message={error} onRetry={retryable ? reload : undefined} />
+      )}
+
+      {(offline || pending > 0) && (
+        <View style={s.notice} accessibilityLiveRegion="polite">
+          <Text style={s.noticeText}>
+            {offline
+              ? `No signal. Showing jobs saved at ${timeOfDay(savedAt ?? "", businessDay?.timezone)}. `
+              : ""}
+            {pending > 0
+              ? `${pending} change${pending === 1 ? "" : "s"} will send when you have signal.`
+              : ""}
+          </Text>
+        </View>
+      )}
+
+      {failures.map((f) => (
+        <ErrorNotice
+          key={f.id}
+          message={`Couldn't send a change you made offline. ${f.message}`}
+        />
+      ))}
+      {failures.length > 0 && (
+        <Pressable accessibilityRole="button" onPress={() => void dismissFailures()}>
+          <Text style={s.dismiss}>Got it</Text>
+        </Pressable>
       )}
 
       {!error && groups.length === 0 && (
@@ -135,6 +173,19 @@ export default function MyDay() {
 
 const s = StyleSheet.create({
   groupLabel: { ...type.label, color: color.faint, marginBottom: space.sm },
+  notice: {
+    padding: space.md,
+    borderRadius: radius.sm,
+    backgroundColor: color.chrome100,
+    marginBottom: space.md,
+  },
+  noticeText: { ...type.small, color: color.muted, lineHeight: 20 },
+  dismiss: {
+    ...type.bodyStrong,
+    color: color.navy700,
+    paddingVertical: space.md,
+    marginBottom: space.md,
+  },
   job: {
     backgroundColor: color.white,
     borderRadius: radius.xl,

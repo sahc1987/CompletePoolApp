@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiError } from "./client";
-import { tasks as tasksApi, type BusinessDay, type WorkerTask } from "./endpoints";
+import type { BusinessDay, WorkerTask } from "./endpoints";
+import { dismissFailures, loadTasks, type SyncFailure } from "../offline/outbox";
 
 /**
  * The worker's job list, plus the business's idea of what day it is.
@@ -23,6 +24,15 @@ export type TasksState = {
   refreshing: boolean;
   error: string | null;
   retryable: boolean;
+  /** Showing the saved copy because the server couldn't be reached. */
+  offline: boolean;
+  /** ISO time of that saved copy. */
+  savedAt: string | null;
+  /** Changes made offline that haven't reached the server yet. */
+  pending: number;
+  /** Changes the server refused when they were sent. */
+  failures: SyncFailure[];
+  dismissFailures: () => Promise<void>;
   reload: () => Promise<void>;
   refresh: () => Promise<void>;
 };
@@ -97,15 +107,23 @@ export function useTasks(): TasksState {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [retryable, setRetryable] = useState(false);
+  const [offline, setOffline] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [pending, setPending] = useState(0);
+  const [failures, setFailures] = useState<SyncFailure[]>([]);
 
   const load = useCallback(async (mode: "initial" | "refresh") => {
     if (mode === "refresh") setRefreshing(true);
     else setLoading(true);
 
     try {
-      const res = await tasksApi.mine();
-      setBusinessDay(res.businessDay);
-      setGroups(groupTasks(res.tasks, res.businessDay));
+      const res = await loadTasks();
+      setBusinessDay(res.list.businessDay);
+      setGroups(groupTasks(res.list.tasks, res.list.businessDay));
+      setOffline(res.offline);
+      setSavedAt(res.savedAt);
+      setPending(res.pending);
+      setFailures(res.failures);
       setError(null);
       setRetryable(false);
     } catch (e) {
@@ -132,6 +150,14 @@ export function useTasks(): TasksState {
     refreshing,
     error,
     retryable,
+    offline,
+    savedAt,
+    pending,
+    failures,
+    dismissFailures: async () => {
+      await dismissFailures();
+      setFailures([]);
+    },
     reload: () => load("initial"),
     refresh: () => load("refresh"),
   };

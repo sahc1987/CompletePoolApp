@@ -13,7 +13,8 @@ import {
 import { useCameraPermissions } from "expo-camera";
 import type { PhotoTypeValue } from "@contracts/enums";
 import { ApiError } from "@/api/client";
-import { photos as photosApi, uploadTaskPhoto, type TaskPhoto } from "@/api/photos";
+import { photos as photosApi, type TaskPhoto } from "@/api/photos";
+import { addPhoto, queuedPhotoCount } from "@/offline/outbox";
 import { Body, Button, Card, Heading } from "@/ui/components";
 import { color, radius, space, type } from "@/ui/theme";
 import { CameraCapture } from "./CameraCapture";
@@ -45,6 +46,7 @@ export function PhotoSection({
   const [error, setError] = useState<string | null>(null);
   const [capturing, setCapturing] = useState<PhotoTypeValue | null>(null);
   const [viewing, setViewing] = useState<TaskPhoto | null>(null);
+  const [queued, setQueued] = useState(0);
   const [permission, requestPermission] = useCameraPermissions();
 
   const load = useCallback(async () => {
@@ -52,8 +54,14 @@ export function PhotoSection({
       setItems(await photosApi.list(taskId));
       setError(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Couldn't load photos.");
+      // With no signal the list simply can't load. The "waiting to upload"
+      // line below explains what the worker needs to know; a red error for
+      // being offline would just be noise.
+      if (!(e instanceof ApiError && e.code === "OFFLINE")) {
+        setError(e instanceof ApiError ? e.message : "Couldn't load photos.");
+      }
     } finally {
+      setQueued(await queuedPhotoCount(taskId));
       setLoading(false);
     }
   }, [taskId]);
@@ -82,10 +90,11 @@ export function PhotoSection({
     setBusyType(type);
     setError(null);
     try {
-      await uploadTaskPhoto(taskId, type, uri);
+      const result = await addPhoto(taskId, type, uri);
       // Re-read rather than appending what was just uploaded: the list is what
-      // carries the signed display URLs.
-      await load();
+      // carries the signed display URLs. A queued photo has nothing to read yet.
+      if (result === "uploaded") await load();
+      else setQueued(await queuedPhotoCount(taskId));
     } catch (e) {
       setError(
         e instanceof ApiError ? e.message : "Couldn't upload that photo."
@@ -195,6 +204,13 @@ export function PhotoSection({
           );
         })}
 
+      {queued > 0 && (
+        <Text style={s.queued} accessibilityLiveRegion="polite">
+          {queued} photo{queued === 1 ? "" : "s"} waiting for signal. They upload
+          by themselves.
+        </Text>
+      )}
+
       {!!error && (
         <Text style={s.error} accessibilityLiveRegion="polite">
           {error}
@@ -266,6 +282,7 @@ const s = StyleSheet.create({
   addLabel: { ...type.small, color: color.navy700 },
   none: { ...type.small, color: color.faint },
   error: { ...type.small, color: color.danger, marginTop: space.md },
+  queued: { ...type.small, color: color.muted, marginTop: space.md },
   viewerBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15,22,34,0.94)",

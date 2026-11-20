@@ -139,6 +139,8 @@ type RequestOptions = {
   /** Skip the bearer token — only the auth endpoints do this. */
   anonymous?: boolean;
   signal?: AbortSignal;
+  /** Overrides REQUEST_TIMEOUT_MS — the offline-queued calls fail fast. */
+  timeoutMs?: number;
 };
 
 async function parseError(res: Response): Promise<ApiError> {
@@ -175,7 +177,10 @@ async function send(
   // A caller's own signal still works; the timeout is added alongside it. The
   // abort surfaces as a thrown error, which request() reports as OFFLINE.
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(),
+    opts.timeoutMs ?? REQUEST_TIMEOUT_MS
+  );
   const onCallerAbort = () => controller.abort();
   // Cancelled before the request even went out (the screen was left while the
   // session was still being read): the abort event has already fired, so a

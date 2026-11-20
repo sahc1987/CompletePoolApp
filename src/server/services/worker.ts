@@ -50,6 +50,11 @@ export async function startTask(
   const task = await loadOwnTask(parsed.data.taskId, actor.id);
   if (!task) return notFound("Task not found.");
 
+  // Already started: the phone is replaying a start whose reply it never saw
+  // (offline queue, or a timeout after the server had applied it). Same end
+  // state, so succeed instead of telling the worker it failed.
+  if (task.status === "IN_PROGRESS") return ok();
+
   // A worker starts a job that's scheduled, or restarts one kicked back to
   // them as FLAGGED to rework it.
   if (task.status !== "SCHEDULED" && task.status !== "FLAGGED") {
@@ -76,6 +81,9 @@ export async function submitTask(
 
   const task = await loadOwnTask(taskId, actor.id);
   if (!task) return notFound("Task not found.");
+  // A replayed submit (see startTask): nothing to redo, and no second stock
+  // decrement or admin notification.
+  if (task.status === "SUBMITTED") return ok();
   if (task.status !== "IN_PROGRESS") {
     return badState("This task isn't in progress.");
   }
