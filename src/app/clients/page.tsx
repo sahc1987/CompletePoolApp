@@ -148,7 +148,7 @@ export default async function ClientsPage({
                   <td className="px-4 py-4 text-right sm:px-5">
                     <Link
                       href={`/clients/${c.id}`}
-                      className="font-semibold text-navy-700 hover:underline"
+                      className="-mx-2 -my-2.5 inline-block px-2 py-2.5 font-semibold text-navy-700 hover:underline"
                     >
                       Manage
                     </Link>

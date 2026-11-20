@@ -20,7 +20,7 @@ const NAV: Record<Role, NavLink[]> = {
   ],
   ADMIN: [
     { href: "/calendar", label: "Calendar", icon: "calendar" },
-    { href: "/clients", label: "Clients", icon: "users" },
+    { href: "/clients", label: "Clients", icon: "pin" },
     { href: "/assign", label: "Assign", icon: "clipboard" },
     { href: "/review", label: "Review", icon: "check" },
     { href: "/billing", label: "Billing", icon: "billing" },
@@ -75,6 +75,7 @@ export default function AppShell({
                 <Link
                   key={link.href}
                   href={link.href}
+                  aria-current={active ? "page" : undefined}
                   className={`inline-flex items-center gap-2 rounded-full px-3.5 py-1.5 text-sm font-semibold transition ${
                     active
                       ? "bg-teal-500 text-navy-900 shadow-sm"

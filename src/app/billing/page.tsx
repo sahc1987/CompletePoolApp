@@ -575,7 +575,7 @@ export default async function BillingPage({
         <>
         {/* Mobile: one card per bill — the whole row is visible without any
             sideways scrolling, and the actions sit at the bottom. */}
-        <div className="space-y-3 sm:hidden">
+        <div className="grid gap-3 sm:grid-cols-2 lg:hidden">
           {pageRows.map((row) => {
             const { bill: b, amount, paid, paidAll, balance, invoice } = row;
             const last = row.periodPayments[row.periodPayments.length - 1];
@@ -656,8 +656,9 @@ export default async function BillingPage({
           })}
         </div>
 
-        {/* Desktop: the sortable table. */}
-        <div className="hidden overflow-x-auto rounded-2xl border border-line/80 bg-white shadow-card sm:block">
+        {/* Desktop (lg+): the sortable table. Below that the five row actions
+            don't fit and were clipped off the right edge, so tablets get cards. */}
+        <div className="hidden overflow-x-auto rounded-2xl border border-line/80 bg-white shadow-card lg:block">
           <table className="w-full border-collapse text-sm sm:min-w-[46rem]">
             <thead>
               <tr className="border-b border-line/70 bg-surface/60 text-[11px] uppercase tracking-wider text-faint">
@@ -758,7 +759,7 @@ export default async function BillingPage({
 
                     <td className="px-3 py-4 text-right sm:px-5">
                       {isAdmin ? (
-                        <div className="flex items-center justify-end gap-1.5">
+                        <div className="ml-auto flex max-w-[22rem] flex-wrap items-center justify-end gap-1.5">
                           <InvoiceButton data={invoice} />
                           <PayLinkActions payUrl={b.payUrl} compact />
                           {balance > 0 && (

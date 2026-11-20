@@ -262,6 +262,8 @@ export default function CalendarView({
           height="auto"
           // Every job is timed, so the all-day strip was permanently empty.
           allDaySlot={false}
+          // ponytail: 3+ overlapping jobs shrank to ~40px slivers; show 2 and a "+n more" link.
+          eventMaxStack={2}
           slotMinTime={slotMinTime}
           slotMaxTime={slotMaxTime}
           // Shades hours outside the configured workday, so the padding above
