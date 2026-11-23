@@ -6,7 +6,7 @@ import StatusBadge from "@/components/StatusBadge";
 import { useToast } from "@/components/Toast";
 import { directionsForDay, directionsTo, MAX_ROUTE_STOPS } from "@/lib/directions";
 import type { DayRoute } from "@/server/services/routeReads";
-import { loadDayRoute } from "./actions";
+import { applyRouteOrder, loadDayRoute, suggestRouteOrder } from "./actions";
 
 // Leaflet needs `window`, so the map renders in the browser only.
 const DayMapCanvas = dynamic(() => import("./DayMapCanvas"), {
@@ -95,6 +95,20 @@ export default function DayMap({
   const routeStops = isWorker || workerFilter ? stops : [];
   const dayDirections = directionsForDay(routeStops);
 
+  // Admins, one worker selected: propose a nearest-stop order, apply on confirm.
+  const suggest = async () => {
+    if (!workerFilter) return;
+    const s = await suggestRouteOrder(day, workerFilter);
+    if (s.error || !s.data) return toast(s.error ?? "Couldn't suggest a route.", "error");
+    if (!s.data.changed) return toast("This day is already in a good order.");
+    // ponytail: confirm() instead of a preview modal — add one if admins want to see the new order first
+    if (!window.confirm(`Reorder this day? Same time slots, about ${s.data.savedKm} km less driving.`)) return;
+    const r = await applyRouteOrder(day, workerFilter, s.data.taskIds);
+    if (r.error) return toast(r.error, "error");
+    toast("Route reordered.");
+    void load(day);
+  };
+
   const navBtn =
     "rounded-full border border-line bg-white px-3 py-1.5 text-sm font-semibold text-ink shadow-sm transition hover:bg-chrome-100 disabled:opacity-50";
 
@@ -175,6 +189,11 @@ export default function DayMap({
             <span className="text-sm font-bold text-ink">
               {stops.length} stop{stops.length === 1 ? "" : "s"}
             </span>
+            {role === "ADMIN" && workerFilter && (
+              <button type="button" onClick={suggest} className="text-sm font-semibold text-navy-700 hover:underline">
+                Suggest route
+              </button>
+            )}
             {dayDirections && (
               <a
                 href={dayDirections}

@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireReader, requireRole } from "@/lib/guard";
 import * as routeReads from "@/server/services/routeReads";
 import type { DayRoute } from "@/server/services/routeReads";
+import * as routePlanning from "@/server/services/routePlanning";
+import type { RouteSuggestion } from "@/contracts/routePlan";
 import { parseMaterialUsage } from "@/lib/materials";
 import { checkbox, opt, str } from "@/lib/formData";
 import * as billingService from "@/server/services/billing";
@@ -19,6 +21,28 @@ export async function loadDayRoute(
   const actor = await requireReader();
   const res = await routeReads.getDayRoute(actor, day);
   return res.ok ? { data: res.data } : { error: res.error };
+}
+
+// Map tab, admins only: propose a visit order for one worker's day, then save it.
+export async function suggestRouteOrder(
+  day: string,
+  workerId: string
+): Promise<{ data?: RouteSuggestion; error?: string }> {
+  const actor = await requireRole("ADMIN");
+  const res = await routePlanning.suggestRoute(actor, { day, workerId });
+  return res.ok ? { data: res.data } : { error: res.error };
+}
+
+export async function applyRouteOrder(
+  day: string,
+  workerId: string,
+  taskIds: string[]
+): Promise<{ error?: string }> {
+  const actor = await requireRole("ADMIN");
+  const res = await routePlanning.applyRouteOrder(actor, { day, workerId, taskIds });
+  if (!res.ok) return { error: res.error };
+  revalidatePath("/calendar");
+  return {};
 }
 
 // Drag / resize a task on the calendar. Called directly (not via a form) from
