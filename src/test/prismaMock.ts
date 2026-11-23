@@ -24,6 +24,7 @@ const MODELS = [
   "stockMovement",
   "materialRequest",
   "appSettings",
+  "waterTest",
   "user",
   "payRateChange",
   "client",

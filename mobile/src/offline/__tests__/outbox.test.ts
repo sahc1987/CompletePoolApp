@@ -1,5 +1,14 @@
 import { ApiError } from "../../api/client";
-import { addPhoto, applyQueue, flush, loadTasks, startTask, submitTask } from "../outbox";
+import {
+  addPhoto,
+  applyQueue,
+  flush,
+  loadTasks,
+  queuedWaterTest,
+  saveWaterTest,
+  startTask,
+  submitTask,
+} from "../outbox";
 
 /**
  * The offline queue's promises: an action taken with no signal is kept, shown
@@ -43,9 +52,10 @@ jest.mock("../../api/photos", () => ({
 jest.mock("../../api/endpoints", () => ({
   tasks: { mine: jest.fn(), start: jest.fn(), submit: jest.fn() },
   materials: { usable: jest.fn() },
+  waterTests: { save: jest.fn() },
 }));
 
-const { tasks } = jest.requireMock("../../api/endpoints");
+const { tasks, waterTests } = jest.requireMock("../../api/endpoints");
 const { uploadCompressed } = jest.requireMock("../../api/photos");
 
 const noSignal = () => new ApiError("OFFLINE", "No connection.");
@@ -121,4 +131,48 @@ it("shows a queued submit on its own job only", () => {
   );
   expect(out[0].status).toBe("SUBMITTED");
   expect(out[1].status).toBe("SCHEDULED");
+});
+
+describe("water tests taken with no signal", () => {
+  it("keeps the reading on the phone, shows it again, and sends it later", async () => {
+    waterTests.save.mockRejectedValueOnce(noSignal());
+    await saveWaterTest("t1", { ph: 7.4, freeChlorine: 2 });
+
+    // Reopening the job offline still shows what was entered.
+    expect(await queuedWaterTest("t1")).toEqual({ ph: 7.4, freeChlorine: 2 });
+
+    waterTests.save.mockResolvedValue(undefined);
+    expect(await flush()).toBe(1);
+    expect(waterTests.save).toHaveBeenLastCalledWith("t1", { ph: 7.4, freeChlorine: 2 });
+    expect(await queuedWaterTest("t1")).toBeNull();
+  });
+
+  it("sends only the latest when it is saved twice before signal returns", async () => {
+    waterTests.save.mockRejectedValue(noSignal());
+    await saveWaterTest("t1", { ph: 7.0 });
+    await saveWaterTest("t1", { ph: 7.5 });
+
+    waterTests.save.mockReset();
+    waterTests.save.mockResolvedValue(undefined);
+    expect(await flush()).toBe(1);
+    expect(waterTests.save).toHaveBeenCalledTimes(1);
+    expect(waterTests.save).toHaveBeenCalledWith("t1", { ph: 7.5 });
+  });
+
+  it("tells the worker when the server refuses it on replay (job no longer in progress)", async () => {
+    waterTests.save.mockRejectedValueOnce(noSignal());
+    await saveWaterTest("t1", { ph: 7.4 });
+    waterTests.save.mockRejectedValue(new ApiError("STATE", "Start the job before recording a water test.", 422));
+
+    expect(await flush()).toBe(0);
+    const state = JSON.parse(mockDisk.get("doc/outbox-u1.json")!);
+    expect(state.queue).toEqual([]);
+    expect(state.failed[0].message).toContain("Start the job");
+  });
+
+  it("doesn't queue a reading the server rejected as invalid", async () => {
+    waterTests.save.mockRejectedValue(new ApiError("VALIDATION", "pH looks too high to be right", 400));
+    await expect(saveWaterTest("t1", { ph: 99 })).rejects.toThrow("too high");
+    expect(await queuedWaterTest("t1")).toBeNull();
+  });
 });

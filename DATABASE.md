@@ -17,6 +17,7 @@ Prisma (`prisma/schema.prisma`). Only `src/server/services/*` touch Prisma; page
 - **Task**: client, pool, worker, service, date, startTime, durationMin, status, price, recurrenceRuleId, submittedAt/approvedAt/approvedById, flagReason.
 - **TaskExtra**, **TaskMaterial**: priced snapshots at time of sale/use.
 - **Photo**: taskId, url (private Storage path), type, uploadedAt.
+- **WaterTest**: taskId (unique, one reading per visit, replaced on re-save), poolId, recordedById, freeChlorine/ph (decimal), alkalinity/cyanuricAcid (ppm), takenAt. Target ranges live in `src/contracts/waterTest.ts`, not the database.
 - **Bill**: invoiceNo (sequential), taskId (unique), amount, status, payToken (unique), checkoutSessionId, remindersSent / lastReminderAt (overdue reminder tracking).
 - **Payment**: receiptNo (sequential), billId, amount, method, stripePaymentIntentId (unique), recordedById.
 - **PaymentReversal**: billId, reason, amountReversed, reversedById.

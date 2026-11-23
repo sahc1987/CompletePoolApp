@@ -1,10 +1,12 @@
 import { File, Paths } from "expo-file-system";
 import type { PhotoTypeValue } from "@contracts/enums";
 import type { MaterialUsageInput } from "@contracts/worker";
+import type { WaterTestFields } from "@contracts/waterTest";
 import { ApiError } from "../api/client";
 import {
   materials as materialsApi,
   tasks as tasksApi,
+  waterTests as waterApi,
   type MaterialOption,
   type TaskListResponse,
   type WorkerTask,
@@ -37,7 +39,8 @@ import { readCachedUser } from "../api/storage";
 export type QueueItem =
   | { id: string; kind: "start"; taskId: string }
   | { id: string; kind: "submit"; taskId: string; usage: MaterialUsageInput[] }
-  | { id: string; kind: "photo"; taskId: string; type: PhotoTypeValue; uri: string };
+  | { id: string; kind: "photo"; taskId: string; type: PhotoTypeValue; uri: string }
+  | { id: string; kind: "water"; taskId: string; fields: WaterTestFields };
 
 type NewItem = QueueItem extends infer I ? (I extends unknown ? Omit<I, "id"> : never) : never;
 
@@ -123,6 +126,7 @@ function retryLater(e: unknown): boolean {
 async function send(item: QueueItem): Promise<void> {
   if (item.kind === "start") return tasksApi.start(item.taskId);
   if (item.kind === "submit") return tasksApi.submit(item.taskId, item.usage);
+  if (item.kind === "water") return waterApi.save(item.taskId, item.fields);
   if (!new File(item.uri).exists) {
     throw new ApiError("NOT_FOUND", "The photo file was lost before it could upload.");
   }
@@ -192,6 +196,30 @@ export async function submitTask(taskId: string, usage: MaterialUsageInput[]): P
     if (!isOffline(e)) throw e;
     await enqueue({ kind: "submit", taskId, usage });
   }
+}
+
+/**
+ * Record the visit's water test. With no signal it is queued; saving again
+ * before it has sent replaces the queued one, so only the latest goes out.
+ */
+export async function saveWaterTest(taskId: string, fields: WaterTestFields): Promise<void> {
+  try {
+    await waterApi.save(taskId, fields);
+  } catch (e) {
+    if (!isOffline(e)) throw e;
+    await mutate((s) => {
+      s.queue = s.queue.filter((i) => !(i.kind === "water" && i.taskId === taskId));
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      s.queue.push({ id, kind: "water", taskId, fields });
+    });
+  }
+}
+
+/** A reading saved on this phone that hasn't reached the server yet, to show again if the job is reopened. */
+export async function queuedWaterTest(taskId: string): Promise<WaterTestFields | null> {
+  const { queue } = await readState();
+  const item = queue.find((i) => i.kind === "water" && i.taskId === taskId);
+  return item && item.kind === "water" ? item.fields : null;
 }
 
 /** Take a photo: uploaded now if possible, otherwise kept on the phone and queued. */

@@ -19,6 +19,7 @@ import {
   Title,
 } from "@/ui/components";
 import { PhotoSection } from "@/features/photos/PhotoSection";
+import { WaterTestCard } from "@/features/waterTest/WaterTestCard";
 import { color, space, type } from "@/ui/theme";
 
 /**
@@ -213,6 +214,8 @@ export default function TaskDetail() {
       )}
 
       <PhotoSection taskId={task.id} editable={canStart || canSubmit} />
+
+      {canSubmit && <WaterTestCard taskId={task.id} />}
 
       {canSubmit && (
         <Card>

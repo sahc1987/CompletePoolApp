@@ -127,6 +127,10 @@ That import crosses out of this project, which needs both `watchFolders` and
 `zod` is pinned to the same version as the web app on purpose — two majors of
 zod would defeat the point of sharing.
 
+### Water test (workers)
+
+`src/features/waterTest/WaterTestCard.tsx`, shown on a job once it is started. Free chlorine, pH, total alkalinity and stabilizer; any can be left blank. A value outside the target range is flagged as it is typed (ranges and the check are `@contracts/waterTest`, shared with the server). Nothing is blocked and no dose is suggested. Admins see each pool's history on the web client page and through `GET /api/v1/pools/:id/water-tests`.
+
 ### Working with no signal (workers)
 
 `src/offline/outbox.ts`. With no signal a worker can still open today's jobs
@@ -146,6 +150,7 @@ job meanwhile) is shown once on the list with the reason, then dismissed.
 - Known limit: the day headings ("Today", "Tomorrow") come from the saved copy,
   so a phone offline past midnight shows yesterday's grouping until it
   reconnects. The app does no date arithmetic, by design.
+- Also queued: the visit's water test (four readings; saving again before it sends replaces the queued one).
 - Not queued: material requests and on-site estimates still need signal.
 
 ### Things that are the way they are for a reason

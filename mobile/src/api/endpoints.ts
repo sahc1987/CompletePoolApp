@@ -18,6 +18,7 @@ import type {
 } from "@contracts/enums";
 import type { ClientFieldsInput, PoolFieldsInput } from "@contracts/clients";
 import type { PaymentDetailsInput } from "@contracts/billing";
+import type { WaterTestFields, WaterTestReading } from "@contracts/waterTest";
 import type {
   AdjustStockInput,
   RespondMaterialRequestInput,
@@ -147,6 +148,15 @@ export const tasks = {
   cancel: (taskId: string) => api.post<void>(`/tasks/${taskId}/cancel`),
   endSeries: (taskId: string) =>
     api.post<{ cancelled: number }>(`/tasks/${taskId}/end-series`),
+};
+
+export const waterTests = {
+  /** This job's reading, or null if none was recorded. */
+  get: (taskId: string) =>
+    api.get<WaterTestReading | null>(`/tasks/${taskId}/water-test`, { timeoutMs: FAST_MS }),
+  /** Replaces the job's reading, so sending it twice is harmless. */
+  save: (taskId: string, fields: WaterTestFields) =>
+    api.put<void>(`/tasks/${taskId}/water-test`, fields, { timeoutMs: FAST_MS }),
 };
 
 export type ReviewTask = WorkerTask & {

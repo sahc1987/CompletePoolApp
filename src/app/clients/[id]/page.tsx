@@ -9,6 +9,10 @@ import ClientForm from "../ClientForm";
 import PoolForm from "../PoolForm";
 import { deleteClient, deletePool } from "../actions";
 import { requirePageSession } from "@/lib/guard";
+import { getBusinessTimezone } from "@/lib/schedule";
+import { waterTestsForClient } from "@/server/services/waterTests";
+import { READINGS, READING_KEYS, readingTarget } from "@/contracts/waterTest";
+import WaterTestHistory from "./WaterTestHistory";
 
 export default async function ClientDetailPage({
   params: paramsP,
@@ -24,6 +28,10 @@ export default async function ClientDetailPage({
   if (!client) notFound();
 
   const deletable = client.deletable;
+
+  const testsRes = await waterTestsForClient(session.user, client.id);
+  const waterTests = testsRes.ok ? testsRes.data : {};
+  const tz = await getBusinessTimezone();
 
   return (
     <AppShell role={session.user.role} name={session.user.name ?? ""}>
@@ -123,6 +131,25 @@ export default async function ClientDetailPage({
           </div>
         </section>
       </div>
+
+      {/* Chemistry the crew measured at each visit. */}
+      <section className={`${card} mt-6`}>
+        <h2 className="mb-1 text-lg font-semibold text-ink">Water tests</h2>
+        <p className="mb-4 text-sm text-muted">
+          Target ranges:{" "}
+          {READING_KEYS.map((k) => `${READINGS[k].label} ${readingTarget(k)}`).join(" · ")}.
+          Out-of-range values are marked ▲ high or ▼ low.
+        </p>
+        <div className="space-y-6">
+          {client.pools.map((p) => (
+            <div key={p.id}>
+              <h3 className="mb-2 text-sm font-semibold text-ink">{p.address}</h3>
+              <WaterTestHistory readings={waterTests[p.id] ?? []} timeZone={tz} />
+            </div>
+          ))}
+          {client.pools.length === 0 && <p className="text-sm text-muted">Add a pool to start tracking.</p>}
+        </div>
+      </section>
     </AppShell>
   );
 }
