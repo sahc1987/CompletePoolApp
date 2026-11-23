@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFormState } from "react-dom";
-import { createTask } from "./actions";
+import { createTask, rankWorkersForJob } from "./actions";
+import type { RankWorkersInput, WorkerFit } from "@/contracts/routePlan";
 import SubmitButton from "@/components/SubmitButton";
 import { Field, FormSection } from "@/components/Field";
 import { inputClass, selectClass, labelClass } from "@/components/styles";
@@ -43,6 +44,34 @@ export default function AssignForm({
   const [price, setPrice] = useState("");
   const [duration, setDuration] = useState("");
   const [repeat, setRepeat] = useState("NONE");
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [days, setDays] = useState<number[]>([]);
+  const [repeatEnd, setRepeatEnd] = useState("");
+  const [workerId, setWorkerId] = useState("");
+  // Live "who fits" list; null until the job has enough filled in to judge.
+  const [fits, setFits] = useState<WorkerFit[] | null>(null);
+  const [fitError, setFitError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setFits(null);
+    setFitError(null);
+    if (!clientId || !poolId || !date || !time || !duration) return;
+    let stale = false;
+    const t = setTimeout(async () => {
+      const res = await rankWorkersForJob({
+        clientId, poolId, date, time, durationMin: duration, repeat: repeat as RankWorkersInput["repeat"], daysOfWeek: days,
+        repeatEndDate: repeatEnd || undefined,
+      });
+      if (stale) return;
+      setFits(res.data ?? null);
+      setFitError(res.error ?? null);
+      // Offer the best free worker, unless the admin already chose one who is still free.
+      const best = res.data?.find((f) => f.clashes === 0);
+      setWorkerId((cur) => (res.data?.some((f) => f.workerId === cur && f.clashes === 0) ? cur : best?.workerId ?? ""));
+    }, 400);
+    return () => { stale = true; clearTimeout(t); };
+  }, [clientId, poolId, date, time, duration, repeat, days, repeatEnd]);
 
   const showDays = repeat === "WEEKLY" || repeat === "BIWEEKLY";
   const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -113,15 +142,6 @@ export default function AssignForm({
               </select>
             </Field>
 
-            <Field label="Worker" htmlFor="workerId" required>
-              <select id="workerId" name="workerId" required className={selectClass}>
-                <option value="">Assign a worker…</option>
-                {workers.map((w) => (
-                  <option key={w.id} value={w.id}>{w.name}</option>
-                ))}
-              </select>
-            </Field>
-
             <Field label="Service" htmlFor="serviceId" required hint="Sets the default price and duration.">
               <select
                 id="serviceId"
@@ -152,7 +172,7 @@ export default function AssignForm({
         <FormSection icon="calendar" title="Schedule & price" description="When it happens and what it costs.">
           <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
             <Field label="Date" htmlFor="date" required>
-              <input id="date" name="date" type="date" required className={inputClass} />
+              <input id="date" name="date" type="date" required className={inputClass} value={date} onChange={(e) => setDate(e.target.value)} />
             </Field>
             <Field
               label="Start time"
@@ -168,6 +188,8 @@ export default function AssignForm({
                 min={workStart}
                 max={workEnd}
                 className={inputClass}
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
               />
             </Field>
             <Field label="Duration (min)" htmlFor="durationMin" required>
@@ -196,6 +218,48 @@ export default function AssignForm({
               />
             </Field>
           </div>
+        </FormSection>
+      </div>
+
+      {/* Worker: ranked once the job is filled in */}
+      <div className="py-6">
+        <FormSection icon="user" title="Worker" description="Best fit first: free at that time, least extra driving, lighter day.">
+          {fits === null ? (
+            <>
+              <select name="workerId" required className={selectClass} value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+                <option value="">Assign a worker…</option>
+                {workers.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+              <p className="mt-2 text-sm text-muted">
+                {fitError ?? "Fill in client, pool, date, time and duration to see who fits best."}
+              </p>
+            </>
+          ) : (
+            <ul className="space-y-2" role="radiogroup" aria-label="Worker">
+              {fits.map((f, i) => {
+                const busy = f.clashes > 0;
+                return (
+                  <li key={f.workerId}>
+                    <label className={`${chipClass} ${busy ? "opacity-60" : ""} w-full justify-between`}>
+                      <span className="flex items-center gap-2">
+                        <input type="radio" name="workerId" value={f.workerId} required checked={workerId === f.workerId} onChange={() => setWorkerId(f.workerId)} className="h-4 w-4" />
+                        <span className="font-semibold">{f.name}</span>
+                        {!busy && i === 0 && <span className="rounded-full bg-chrome-100 px-2 py-0.5 text-xs font-semibold text-navy-900">Best fit</span>}
+                        {f.usual && <span className="text-xs text-muted">usual worker</span>}
+                      </span>
+                      <span className={`text-xs ${busy ? "text-danger" : "text-muted"}`}>
+                        {busy
+                          ? `${f.clashNote}${f.clashes > 1 ? ` (+${f.clashes - 1} more visits)` : ""}`
+                          : `${f.extraKm === null ? "distance unknown" : `+${f.extraKm} km`} · ${f.jobsThatDay} job${f.jobsThatDay === 1 ? "" : "s"} that day`}
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </FormSection>
       </div>
 
@@ -244,7 +308,7 @@ export default function AssignForm({
             </Field>
             {repeat !== "NONE" && (
               <Field label="Repeat until" htmlFor="repeatEndDate" hint="Leave blank for no end date.">
-                <input id="repeatEndDate" name="repeatEndDate" type="date" className={inputClass} />
+                <input id="repeatEndDate" name="repeatEndDate" type="date" className={inputClass} value={repeatEnd} onChange={(e) => setRepeatEnd(e.target.value)} />
               </Field>
             )}
           </div>
@@ -254,7 +318,14 @@ export default function AssignForm({
               <div className="flex flex-wrap gap-2">
                 {DOW.map((d, i) => (
                   <label key={d} className={chipClass}>
-                    <input type="checkbox" name="daysOfWeek" value={i} className="h-4 w-4" />
+                    <input
+                      type="checkbox"
+                      name="daysOfWeek"
+                      value={i}
+                      className="h-4 w-4"
+                      checked={days.includes(i)}
+                      onChange={(e) => setDays((cur) => (e.target.checked ? [...cur, i] : cur.filter((x) => x !== i)))}
+                    />
                     {d}
                   </label>
                 ))}

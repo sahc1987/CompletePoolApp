@@ -1,7 +1,7 @@
 export type Point = { id: string; lat: number; lng: number };
 
 // Straight-line distance in km; plenty for ordering stops within one town.
-function km(a: Point, b: Point): number {
+export function km(a: Point, b: Point): number {
   const rad = Math.PI / 180;
   const dLat = (b.lat - a.lat) * rad;
   const dLng = (b.lng - a.lng) * rad;

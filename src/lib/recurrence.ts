@@ -19,7 +19,7 @@ function wholeWeeksBetween(a: Date, b: Date, tz: string): number {
 }
 
 // Does this rule fire on the given calendar day, read in the business zone?
-function occursOn(
+export function occursOn(
   rule: { frequency: Frequency; daysOfWeek: number[]; startDate: Date },
   day: Date,
   tz: string

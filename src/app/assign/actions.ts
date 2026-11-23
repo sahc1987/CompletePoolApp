@@ -6,6 +6,8 @@ import { requireRole } from "@/lib/guard";
 import { many, opt, str } from "@/lib/formData";
 import * as scheduling from "@/server/services/scheduling";
 import type { ActionState } from "@/lib/actions";
+import { rankWorkers } from "@/server/services/workerFit";
+import type { RankWorkersInput, WorkerFit } from "@/contracts/routePlan";
 
 export async function createTask(
   _prev: ActionState,
@@ -32,6 +34,15 @@ export async function createTask(
   revalidatePath("/calendar");
   revalidatePath("/assign");
   redirect("/calendar");
+}
+
+// The assign form's live "who fits this job" list. Saves nothing.
+export async function rankWorkersForJob(
+  job: RankWorkersInput
+): Promise<{ data?: WorkerFit[]; error?: string }> {
+  const actor = await requireRole("ADMIN");
+  const res = await rankWorkers(actor, job);
+  return res.ok ? { data: res.data } : { error: res.error };
 }
 
 // Admin-triggered (and cron-callable) expansion of all recurrence rules into
