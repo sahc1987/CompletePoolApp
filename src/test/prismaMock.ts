@@ -25,6 +25,7 @@ const MODELS = [
   "materialRequest",
   "appSettings",
   "waterTest",
+  "checklistItem",
   "user",
   "payRateChange",
   "client",

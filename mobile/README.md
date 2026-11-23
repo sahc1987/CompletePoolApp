@@ -127,6 +127,10 @@ That import crosses out of this project, which needs both `watchFolders` and
 `zod` is pinned to the same version as the web app on purpose — two majors of
 zod would defeat the point of sharing.
 
+### Checklist (workers)
+
+`src/features/checklist/ChecklistCard.tsx`, shown on a started job whose service has a checklist. Ticks save by themselves shortly after the last tap and when the screen is left, through the offline outbox (ticking again before it sends replaces the queued one). The checklist travels in the job list (`WorkerTask.checklist`), so it works offline from the saved copy. It's a reminder: the submit confirmation says how many items are unticked, but never blocks. Admins write each service's list in Settings; unticked items show on the review queue.
+
 ### Water test (workers)
 
 `src/features/waterTest/WaterTestCard.tsx`, shown on a job once it is started. Free chlorine, pH, total alkalinity and stabilizer; any can be left blank. A value outside the target range is flagged as it is typed (ranges and the check are `@contracts/waterTest`, shared with the server). Nothing is blocked and no dose is suggested. Admins see each pool's history on the web client page and through `GET /api/v1/pools/:id/water-tests`.

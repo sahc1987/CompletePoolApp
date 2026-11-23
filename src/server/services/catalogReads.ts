@@ -19,6 +19,8 @@ export type ServiceRow = {
   name: string;
   basePrice: number;
   defaultDurationMin: number;
+  /** The checklist lines workers tick off on this service's jobs, in order. */
+  checklist: string[];
 };
 
 export type ExtraServiceRow = {
@@ -47,12 +49,16 @@ export type ClientWithPools = {
 };
 
 export async function listServices(): Promise<ServiceRow[]> {
-  const rows = await prisma.service.findMany({ orderBy: { name: "asc" } });
+  const rows = await prisma.service.findMany({
+    orderBy: { name: "asc" },
+    include: { checklistItems: { orderBy: { position: "asc" }, select: { label: true } } },
+  });
   return rows.map((s) => ({
     id: s.id,
     name: s.name,
     basePrice: requiredMoney(s.basePrice),
     defaultDurationMin: s.defaultDurationMin,
+    checklist: (s.checklistItems ?? []).map((i) => i.label),
   }));
 }
 

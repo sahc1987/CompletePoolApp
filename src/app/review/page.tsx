@@ -7,6 +7,7 @@ import { money, toNumber } from "@/lib/serialize";
 import { approveTask } from "./actions";
 import FlagForm from "./FlagForm";
 import { requirePageSession } from "@/lib/guard";
+import { untickedCount } from "@/contracts/checklist";
 
 // Instants arrive from the task service as ISO strings. Converting is not
 // optional: String.prototype.toLocaleString ignores the options below and
@@ -91,6 +92,19 @@ export default async function ReviewPage() {
                             })`
                         )
                         .join(", ")}
+                    </div>
+                  )}
+                  {t.checklist.length > 0 && (
+                    <div className="mt-1 text-sm text-muted">
+                      Checklist: {t.checklist.length - untickedCount(t.checklist)} of{" "}
+                      {t.checklist.length} ticked
+                      {untickedCount(t.checklist) > 0 && (
+                        <span className="font-semibold text-pending">
+                          {" "}
+                          — not ticked:{" "}
+                          {t.checklist.filter((c) => !c.done).map((c) => c.label).join(", ")}
+                        </span>
+                      )}
                     </div>
                   )}
                   <div className="mt-1 font-medium text-ink">{money(t.price)}</div>

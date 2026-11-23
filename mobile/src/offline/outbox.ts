@@ -40,7 +40,8 @@ export type QueueItem =
   | { id: string; kind: "start"; taskId: string }
   | { id: string; kind: "submit"; taskId: string; usage: MaterialUsageInput[] }
   | { id: string; kind: "photo"; taskId: string; type: PhotoTypeValue; uri: string }
-  | { id: string; kind: "water"; taskId: string; fields: WaterTestFields };
+  | { id: string; kind: "water"; taskId: string; fields: WaterTestFields }
+  | { id: string; kind: "checklist"; taskId: string; done: string[] };
 
 type NewItem = QueueItem extends infer I ? (I extends unknown ? Omit<I, "id"> : never) : never;
 
@@ -127,6 +128,7 @@ async function send(item: QueueItem): Promise<void> {
   if (item.kind === "start") return tasksApi.start(item.taskId);
   if (item.kind === "submit") return tasksApi.submit(item.taskId, item.usage);
   if (item.kind === "water") return waterApi.save(item.taskId, item.fields);
+  if (item.kind === "checklist") return tasksApi.saveChecklist(item.taskId, item.done);
   if (!new File(item.uri).exists) {
     throw new ApiError("NOT_FOUND", "The photo file was lost before it could upload.");
   }
@@ -215,6 +217,23 @@ export async function saveWaterTest(taskId: string, fields: WaterTestFields): Pr
   }
 }
 
+/**
+ * Save which checklist items are ticked. With no signal it is queued; ticking
+ * again before it has sent replaces the queued one, so only the latest goes out.
+ */
+export async function saveChecklist(taskId: string, done: string[]): Promise<void> {
+  try {
+    await tasksApi.saveChecklist(taskId, done);
+  } catch (e) {
+    if (!isOffline(e)) throw e;
+    await mutate((s) => {
+      s.queue = s.queue.filter((i) => !(i.kind === "checklist" && i.taskId === taskId));
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      s.queue.push({ id, kind: "checklist", taskId, done });
+    });
+  }
+}
+
 /** A reading saved on this phone that hasn't reached the server yet, to show again if the job is reopened. */
 export async function queuedWaterTest(taskId: string): Promise<WaterTestFields | null> {
   const { queue } = await readState();
@@ -247,12 +266,17 @@ export async function addPhoto(
 export function applyQueue(tasks: WorkerTask[], queue: QueueItem[]): WorkerTask[] {
   return tasks.map((t) => {
     let status = t.status;
+    let checklist = t.checklist;
     for (const i of queue) {
       if (i.taskId !== t.id) continue;
       if (i.kind === "start") status = "IN_PROGRESS";
       if (i.kind === "submit") status = "SUBMITTED";
+      // Ticks saved on this phone that the server hasn't seen yet.
+      if (i.kind === "checklist") {
+        checklist = (t.checklist ?? []).map((c) => ({ ...c, done: i.done.includes(c.id) }));
+      }
     }
-    return status === t.status ? t : { ...t, status };
+    return status === t.status && checklist === t.checklist ? t : { ...t, status, checklist };
   });
 }
 

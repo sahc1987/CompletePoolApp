@@ -1,6 +1,7 @@
 import { getBusinessCatalog, getEmailSettings } from "@/server/services/catalogReads";
 import { isDemoUser } from "@/lib/demo";
 import EmailForm from "./EmailForm";
+import ChecklistForm from "./ChecklistForm";
 import RemindersForm from "./RemindersForm";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
@@ -184,6 +185,16 @@ export default async function SettingsPage() {
                   { name: "defaultDurationMin", label: "Minutes", type: "number", defaultValue: s.defaultDurationMin },
                 ]}
               >
+                <ModalButton
+                  label={s.checklist.length ? `Checklist (${s.checklist.length})` : "Checklist"}
+                  title={`${s.name} checklist`}
+                  subtitle="What workers tick off on every job of this service."
+                  icon={null}
+                  size="sm"
+                  className="rounded-full px-3 py-1.5 text-[13px] font-semibold text-navy-700 transition hover:bg-chrome-100"
+                >
+                  <ChecklistForm serviceId={s.id} items={s.checklist} />
+                </ModalButton>
                 <DeleteButton
                   action={deleteService}
                   hidden={{ id: s.id }}

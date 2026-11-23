@@ -19,6 +19,7 @@ import type {
 import type { ClientFieldsInput, PoolFieldsInput } from "@contracts/clients";
 import type { PaymentDetailsInput } from "@contracts/billing";
 import type { WaterTestFields, WaterTestReading } from "@contracts/waterTest";
+import type { ChecklistEntry } from "@contracts/checklist";
 import type {
   AdjustStockInput,
   RespondMaterialRequestInput,
@@ -85,6 +86,8 @@ export type WorkerTask = {
   clientPhone: string | null;
   poolAddress: string;
   serviceName: string;
+  /** This service's checklist and what has been ticked. Empty when the service has none. */
+  checklist: ChecklistEntry[];
 };
 
 export type TaskListResponse<T> = {
@@ -133,6 +136,9 @@ export const tasks = {
     api.post<void>(`/tasks/${taskId}/start`, undefined, { timeoutMs: FAST_MS }),
   submit: (taskId: string, usage: MaterialUsageInput[]) =>
     api.post<void>(`/tasks/${taskId}/submit`, { usage }, { timeoutMs: FAST_MS }),
+  /** Replaces the job's ticks with these checklist item ids, so sending it twice is harmless. */
+  saveChecklist: (taskId: string, done: string[]) =>
+    api.put<void>(`/tasks/${taskId}/checklist`, { done }, { timeoutMs: FAST_MS }),
 
   // --- Admin ---------------------------------------------------------------
   /** Jobs submitted and waiting on an admin's approve/flag. */

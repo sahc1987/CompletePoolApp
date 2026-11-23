@@ -5,6 +5,7 @@ import {
   flush,
   loadTasks,
   queuedWaterTest,
+  saveChecklist,
   saveWaterTest,
   startTask,
   submitTask,
@@ -50,7 +51,7 @@ jest.mock("../../api/photos", () => ({
   uploadCompressed: jest.fn(),
 }));
 jest.mock("../../api/endpoints", () => ({
-  tasks: { mine: jest.fn(), start: jest.fn(), submit: jest.fn() },
+  tasks: { mine: jest.fn(), start: jest.fn(), submit: jest.fn(), saveChecklist: jest.fn() },
   materials: { usable: jest.fn() },
   waterTests: { save: jest.fn() },
 }));
@@ -174,5 +175,40 @@ describe("water tests taken with no signal", () => {
     waterTests.save.mockRejectedValue(new ApiError("VALIDATION", "pH looks too high to be right", 400));
     await expect(saveWaterTest("t1", { ph: 99 })).rejects.toThrow("too high");
     expect(await queuedWaterTest("t1")).toBeNull();
+  });
+});
+
+describe("checklist ticks taken with no signal", () => {
+  const withList = (id: string) => ({
+    ...job(id),
+    checklist: [
+      { id: "i1", label: "Skim", done: false },
+      { id: "i2", label: "Baskets", done: false },
+    ],
+  });
+
+  it("shows the ticks straight away, and sends only the latest when signal returns", async () => {
+    tasks.saveChecklist.mockRejectedValue(noSignal());
+    await saveChecklist("t1", ["i1"]);
+    await saveChecklist("t1", ["i1", "i2"]);
+
+    const shown = applyQueue(
+      [withList("t1"), withList("t2")] as never,
+      JSON.parse(mockDisk.get("doc/outbox-u1.json")!).queue
+    );
+    expect(shown[0].checklist.map((c: { done: boolean }) => c.done)).toEqual([true, true]);
+    expect(shown[1].checklist.map((c: { done: boolean }) => c.done)).toEqual([false, false]);
+
+    tasks.saveChecklist.mockReset();
+    tasks.saveChecklist.mockResolvedValue(undefined);
+    expect(await flush()).toBe(1);
+    expect(tasks.saveChecklist).toHaveBeenCalledTimes(1);
+    expect(tasks.saveChecklist).toHaveBeenCalledWith("t1", ["i1", "i2"]);
+  });
+
+  it("doesn't queue a save the server rejected as invalid", async () => {
+    tasks.saveChecklist.mockRejectedValue(new ApiError("VALIDATION", "Too many items", 400));
+    await expect(saveChecklist("t1", [])).rejects.toThrow("Too many");
+    expect(JSON.parse(mockDisk.get("doc/outbox-u1.json") ?? '{"queue":[]}').queue).toEqual([]);
   });
 });

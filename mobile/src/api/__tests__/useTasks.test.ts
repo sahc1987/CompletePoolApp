@@ -32,6 +32,7 @@ const task = (over: Partial<WorkerTask> = {}): WorkerTask => ({
   clientPhone: null,
   poolAddress: "1 Pool Ln",
   serviceName: "Weekly clean",
+  checklist: [],
   ...over,
 });
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/guard";
 import { opt, str } from "@/lib/formData";
 import * as settingsService from "@/server/services/settings";
+import * as checklistService from "@/server/services/checklists";
 import type { ActionState } from "@/lib/actions";
 
 // --- Services ----------------------------------------------------------
@@ -159,6 +160,27 @@ export async function saveReminderSetting(
   const actor = await requireRole("ADMIN");
   const res = await settingsService.setRemindersEnabled(actor, {
     enabled: opt(formData, "enabled") === "on",
+  });
+  if (!res.ok) return { error: res.error };
+
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+// --- Service checklists ----------------------------------------------------
+
+// One checklist item per line. Blank lines and repeats are dropped by the service.
+export async function saveChecklist(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const res = await checklistService.saveServiceChecklist(actor, {
+    serviceId: str(formData, "serviceId"),
+    items: str(formData, "items")
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter(Boolean),
   });
   if (!res.ok) return { error: res.error };
 

@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import type { ChecklistEntry } from "@/contracts/checklist";
+import { mergeChecklist } from "./checklists";
 import { paidAmount } from "@/lib/billing";
 import { getBusinessTimezone } from "@/lib/schedule";
 import { addZonedDays, zonedDayKey } from "@/lib/timezone";
@@ -86,6 +88,8 @@ export type WorkerTaskRow = {
   clientPhone: string | null;
   poolAddress: string;
   serviceName: string;
+  /** The service's checklist as this job stands: ticked or not. Empty when the service has none. */
+  checklist: ChecklistEntry[];
 };
 
 export type ReviewTaskRow = WorkerTaskRow & {
@@ -119,7 +123,12 @@ export async function listMyTasks(
     include: {
       client: { select: { name: true, phone: true } },
       pool: { select: { address: true } },
-      service: { select: { name: true } },
+      service: {
+        select: {
+          name: true,
+          checklistItems: { orderBy: { position: "asc" }, select: { id: true, label: true } },
+        },
+      },
     },
     orderBy: { startTime: "asc" },
   });
@@ -139,6 +148,7 @@ export async function listMyTasks(
       clientPhone: t.client.phone,
       poolAddress: t.pool.address,
       serviceName: t.service.name,
+      checklist: mergeChecklist(t.checklist, t.service.checklistItems ?? []),
     }))
   );
 }
@@ -161,7 +171,12 @@ export async function listReviewQueue(
     include: {
       client: { select: { name: true, phone: true } },
       pool: { select: { address: true } },
-      service: { select: { name: true } },
+      service: {
+        select: {
+          name: true,
+          checklistItems: { orderBy: { position: "asc" }, select: { id: true, label: true } },
+        },
+      },
       worker: { select: { name: true } },
       extras: { include: { extraService: { select: { name: true } } } },
       materials: {
@@ -187,6 +202,7 @@ export async function listReviewQueue(
       clientPhone: t.client.phone,
       poolAddress: t.pool.address,
       serviceName: t.service.name,
+      checklist: mergeChecklist(t.checklist, t.service.checklistItems ?? []),
       workerName: t.worker.name,
       photoCount: t._count?.photos ?? 0,
       extras: t.extras.map((e) => ({

@@ -20,6 +20,8 @@ import {
 } from "@/ui/components";
 import { PhotoSection } from "@/features/photos/PhotoSection";
 import { WaterTestCard } from "@/features/waterTest/WaterTestCard";
+import { ChecklistCard } from "@/features/checklist/ChecklistCard";
+import { untickedCount, type ChecklistEntry } from "@contracts/checklist";
 import { color, space, type } from "@/ui/theme";
 
 /**
@@ -39,6 +41,7 @@ export default function TaskDetail() {
   const [businessDay, setBusinessDay] = useState<BusinessDay | null>(null);
   const [catalog, setCatalog] = useState<MaterialOption[]>([]);
   const [quantities, setQuantities] = useState<Record<string, string>>({});
+  const [checklist, setChecklist] = useState<ChecklistEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,6 +55,7 @@ export default function TaskDetail() {
       const [loaded, mats] = await Promise.all([loadTasks(), loadCatalog()]);
       const found = loaded.list.tasks.find((t) => t.id === id) ?? null;
       setTask(found);
+      setChecklist(found?.checklist ?? []);
       setBusinessDay(loaded.list.businessDay);
       setCatalog(mats);
       setError(
@@ -121,9 +125,12 @@ export default function TaskDetail() {
       return;
     }
 
-    const summary = usage.length
+    let summary = usage.length
       ? `${usage.length} material${usage.length === 1 ? "" : "s"} logged.`
       : "No materials logged.";
+    // A reminder, not a block: the worker can still submit.
+    const left = untickedCount(checklist);
+    if (left > 0) summary += ` ${left} checklist item${left === 1 ? "" : "s"} not ticked.`;
     Alert.alert(
       "Submit this job?",
       `${summary} It goes to an admin for review, and stock is counted now.`,
@@ -214,6 +221,10 @@ export default function TaskDetail() {
       )}
 
       <PhotoSection taskId={task.id} editable={canStart || canSubmit} />
+
+      {canSubmit && checklist.length > 0 && (
+        <ChecklistCard taskId={task.id} items={checklist} onChange={setChecklist} />
+      )}
 
       {canSubmit && <WaterTestCard taskId={task.id} />}
 
