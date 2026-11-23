@@ -4,6 +4,7 @@ import { Alert, StyleSheet, Text } from "react-native";
 import { ApiError } from "@/api/client";
 import { settings as settingsApi } from "@/api/endpoints";
 import { extraFieldsSchema, serviceFieldsSchema, taxRateFieldsSchema } from "@contracts/settings";
+import { MAX_CHECKLIST_ITEMS, serviceChecklistSchema } from "@contracts/checklist";
 import { Body, Button, Card, Field, Loading, Screen } from "@/ui/components";
 import { color, space, type } from "@/ui/theme";
 
@@ -33,6 +34,8 @@ export default function CatalogItem() {
   const [name, setName] = useState("");
   const [amount, setAmount] = useState(""); // base price, price, or rate %
   const [duration, setDuration] = useState("");
+  const [checklist, setChecklist] = useState(""); // one item per line
+  const [checklistSaved, setChecklistSaved] = useState(false);
 
   useEffect(() => {
     navigation.setOptions({ title: TITLES[kind]?.[editing ? 1 : 0] ?? "Settings" });
@@ -49,6 +52,7 @@ export default function CatalogItem() {
           setName(x.name);
           setAmount(String(x.basePrice));
           setDuration(String(x.defaultDurationMin));
+          setChecklist((x.checklist ?? []).join("\n"));
         } else if (kind === "extra") {
           const x = d.extras.find((r) => r.id === id);
           if (!x) return setError("This add-on no longer exists.");
@@ -114,6 +118,24 @@ export default function CatalogItem() {
     }
   };
 
+  const saveChecklist = async () => {
+    if (busy || !id) return;
+    const items = checklist.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+    const parsed = serviceChecklistSchema.safeParse({ serviceId: id, items });
+    if (!parsed.success) return setError(parsed.error.issues[0].message);
+    setBusy(true);
+    setError(null);
+    setChecklistSaved(false);
+    try {
+      await settingsApi.saveChecklist(id, items);
+      setChecklistSaved(true);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Couldn't save the checklist.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const remove = () =>
     Alert.alert(`Delete ${name}?`, "Only possible while no job has used it.", [
       { text: "Keep", style: "cancel" },
@@ -163,10 +185,32 @@ export default function CatalogItem() {
           />
         )}
       </Card>
+      {kind === "service" && editing && (
+        <Card>
+          <Field
+            label={`Checklist (one item per line, up to ${MAX_CHECKLIST_ITEMS})`}
+            value={checklist}
+            onChangeText={(v) => {
+              setChecklist(v);
+              setChecklistSaved(false);
+            }}
+            multiline
+            placeholder={"Skim the surface\nEmpty skimmer baskets"}
+            editable={!busy}
+          />
+          <Body tone="muted">
+            Workers tick these off on every job of this service. It's a reminder: they can still submit with
+            items unticked, and you see what was missed when you review.{"\n"}
+          </Body>
+          {checklistSaved && <Text style={s.saved}>Checklist saved.</Text>}
+          <Button title="Save checklist" variant="secondary" onPress={saveChecklist} disabled={busy} />
+        </Card>
+      )}
     </Screen>
   );
 }
 
 const s = StyleSheet.create({
+  saved: { ...type.bodyStrong, color: color.good, marginBottom: space.sm },
   error: { ...type.small, color: color.danger, marginBottom: space.md },
 });

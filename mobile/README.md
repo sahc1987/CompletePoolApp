@@ -17,14 +17,15 @@ owner sees it read-only, as on the web.
 
 Clients and billing open from the manager dashboard tiles:
 - **Clients** (admin only, as on the web): search, details, and adding or editing clients and pools.
-- **Billing**: bills by status; recording cash, check or card payments, full or partial; undoing payments with a reason; and sending the card pay link.
+- **Billing**: bills by status; recording cash, check or card payments, full or partial; undoing payments with a reason; sending the card pay link; and emailing the invoice (PDF + pay link) to the client from **Email invoice**, which needs email connected in the web Settings → Email.
 - **Invoices and receipts** are rendered on the server from the same design the web uses (`src/lib/pdf/billingDocs.tsx`). They open in the share sheet via `expo-sharing`.
 - **The owner** reads billing and shares documents but can't move money.
 
 More dashboard tiles, each with the same access as on the web:
 - **Materials** (admin): the crew's requests, which an admin approves or denies with a note; the stock list, with low stock flagged; restocks and adjustments, each logged; and adding, editing or retiring materials.
 - **Team** (admin and owner, only for accounts they outrank): add people, and change role, pay and dates. Disable accounts, which signs them out everywhere, and reset passwords. Each person also shows eight weeks of hours and pay.
-- **Settings** (admin): business hours and timezone, services, add-ons, and tax rates (switched on or off).
+- **Settings** (admin): business hours and timezone, services, add-ons, and tax rates (switched on or off). Each service has a checklist editor (one item per line) on its edit screen. Email and reminder setup are web-only, because the Gmail app password is typed once, on a computer.
+- **Reviewing a job** also shows the worker's checklist (which items were ticked) and water-test readings, with out-of-range values marked. **A client's page** shows each pool's latest water tests.
 - **Numbers** (owner): revenue, margin, on-time rate, signed estimates, and figures per worker and per material.
 
 The web has no screen for editing company identity, so the app doesn't either.

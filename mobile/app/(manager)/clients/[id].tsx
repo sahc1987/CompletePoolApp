@@ -5,10 +5,13 @@ import { ApiError } from "@/api/client";
 import {
   bills as billsApi,
   clients as clientsApi,
+  waterTests as waterApi,
   type BillListPage,
   type ClientDetail,
 } from "@/api/endpoints";
-import { BillCard } from "@/features/billing/shared";
+import { BillCard, shortDate } from "@/features/billing/shared";
+import { ReadingLine } from "@/features/waterTest/WaterTestSummary";
+import type { WaterTestReading } from "@contracts/waterTest";
 import {
   Body,
   Button,
@@ -33,6 +36,7 @@ export default function ClientScreen() {
 
   const [client, setClient] = useState<ClientDetail | null>(null);
   const [billing, setBilling] = useState<BillListPage | null>(null);
+  const [tests, setTests] = useState<Record<string, WaterTestReading[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -45,6 +49,11 @@ export default function ClientScreen() {
       ]);
       setClient(c);
       setBilling(b);
+      // Each pool's latest readings; a failure just leaves the section empty.
+      const lists = await Promise.all(
+        c.pools.map((p) => waterApi.forPool(p.id, 3).catch(() => [] as WaterTestReading[]))
+      );
+      setTests(Object.fromEntries(c.pools.map((p, i) => [p.id, lists[i]])));
       setError(null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't load this client.");
@@ -162,6 +171,23 @@ export default function ClientScreen() {
         ))}
       </Card>
 
+      <Card>
+        <Heading>Water tests</Heading>
+        {client.pools.length === 0 && <Body tone="muted">Add a pool to start tracking.</Body>}
+        {client.pools.map((p) => (
+          <View key={p.id} style={s.testPool}>
+            <Text style={s.poolAddress}>{p.address}</Text>
+            {(tests[p.id] ?? []).length === 0 && <Body tone="muted">No water tests recorded yet.</Body>}
+            {(tests[p.id] ?? []).map((r) => (
+              <View key={r.id} style={s.testRow}>
+                <Text style={s.testDate}>{shortDate(r.takenAt, billing?.timezone ?? "UTC")}</Text>
+                <ReadingLine reading={r} />
+              </View>
+            ))}
+          </View>
+        ))}
+      </Card>
+
       <View style={s.sectionHead}>
         <Heading>Bills</Heading>
         {owed > 0 && <Text style={s.owed}>{usd(owed)} owed</Text>}
@@ -266,4 +292,7 @@ const s = StyleSheet.create({
   },
   poolAddress: { ...type.bodyStrong, color: color.ink },
   poolMeta: { ...type.small, color: color.muted, marginTop: 2 },
+  testPool: { paddingTop: space.md, borderTopWidth: 1, borderTopColor: color.chrome100, marginTop: space.sm },
+  testRow: { marginTop: space.sm },
+  testDate: { ...type.small, fontWeight: "700", color: color.navy700 },
 });

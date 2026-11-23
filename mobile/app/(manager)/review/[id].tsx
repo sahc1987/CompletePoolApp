@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useLocalSearchParams, useNavigation, useRouter } from "expo-router";
 import { Alert, StyleSheet, View } from "react-native";
 import { ApiError } from "@/api/client";
-import { tasks as tasksApi, type ReviewTask } from "@/api/endpoints";
+import { tasks as tasksApi, waterTests as waterApi, type ReviewTask } from "@/api/endpoints";
+import { untickedCount } from "@contracts/checklist";
+import { READINGS, READING_KEYS, type WaterTestReading } from "@contracts/waterTest";
+import { ReadingValue } from "@/features/waterTest/WaterTestSummary";
 import { PhotoSection } from "@/features/photos/PhotoSection";
 import {
   Body,
@@ -34,6 +37,7 @@ export default function ReviewJob() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  const [water, setWater] = useState<WaterTestReading | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -41,6 +45,8 @@ export default function ReviewJob() {
       const found = res.tasks.find((t) => t.id === id) ?? null;
       setTask(found);
       setError(found ? null : "This job is no longer waiting on review.");
+      // Optional context for the reviewer; a failure here never blocks the decision.
+      setWater(found ? await waterApi.get(found.id).catch(() => null) : null);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Couldn't load this job.");
     } finally {
@@ -142,6 +148,32 @@ export default function ReviewJob() {
           <Body tone="muted">{task.notes}</Body>
         </Card>
       )}
+
+      {task.checklist.length > 0 && (
+        <Card>
+          <Heading>
+            Checklist · {task.checklist.length - untickedCount(task.checklist)} of {task.checklist.length} ticked
+          </Heading>
+          {task.checklist.map((c) => (
+            <Row key={c.id} label={c.label} value={c.done ? "✓ done" : "✗ not ticked"} />
+          ))}
+        </Card>
+      )}
+
+      <Card>
+        <Heading>Water test</Heading>
+        {water ? (
+          READING_KEYS.map((k) => (
+            <Row
+              key={k}
+              label={READINGS[k].label}
+              value={<ReadingValue k={k} value={water[k]} />}
+            />
+          ))
+        ) : (
+          <Body tone="muted">No water test recorded.</Body>
+        )}
+      </Card>
 
       <PhotoSection taskId={task.id} editable={false} />
 

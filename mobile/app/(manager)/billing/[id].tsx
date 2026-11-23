@@ -52,6 +52,7 @@ export default function BillScreen() {
   const [undoing, setUndoing] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  const [emailing, setEmailing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -99,6 +100,32 @@ export default function BillScreen() {
     setSharing(key);
     await shareDocument(download, title);
     setSharing(null);
+  };
+
+  const emailInvoice = () => {
+    const to = client.email;
+    if (!to) {
+      Alert.alert("No email address", `Add an email address to ${client.name} first, then try again.`);
+      return;
+    }
+    Alert.alert("Email this invoice?", `The invoice (PDF) and a pay link go to ${to}.`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Send",
+        onPress: async () => {
+          setEmailing(true);
+          setError(null);
+          try {
+            const res = await billsApi.emailInvoice(bill.id);
+            Alert.alert("Sent", `The invoice was emailed to ${res.sentTo}.`);
+          } catch (e) {
+            setError(e instanceof ApiError ? e.message : "Couldn't send the email. Try again.");
+          } finally {
+            setEmailing(false);
+          }
+        },
+      },
+    ]);
   };
 
   const undo = () => {
@@ -176,6 +203,9 @@ export default function BillScreen() {
             share("invoice", () => billsApi.invoicePdf(bill), `Invoice ${invoiceNumber(bill.invoiceNo)}`)
           }
         />
+        {isAdmin && bill.balance > 0 && (
+          <Action icon="mail-outline" label="Email invoice" busy={emailing} onPress={emailInvoice} />
+        )}
         {isAdmin && !!bill.payUrl && (
           <Action
             icon="card-outline"

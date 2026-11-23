@@ -157,6 +157,9 @@ export const tasks = {
 };
 
 export const waterTests = {
+  /** A pool's recent readings, newest first (admin and owner). */
+  forPool: (poolId: string, limit = 6) =>
+    api.get<WaterTestReading[]>(`/pools/${poolId}/water-tests?limit=${limit}`),
   /** This job's reading, or null if none was recorded. */
   get: (taskId: string) =>
     api.get<WaterTestReading | null>(`/tasks/${taskId}/water-test`, { timeoutMs: FAST_MS }),
@@ -563,6 +566,9 @@ export const bills = {
     return api.get<BillListPage>(qs ? `/bills?${qs}` : "/bills");
   },
   get: (id: string) => api.get<BillDetail>(`/bills/${id}`),
+  /** Emails the invoice (PDF + pay link) to the client. Slower than most calls: it renders a PDF and sends mail. */
+  emailInvoice: (id: string) =>
+    api.post<{ sentTo: string }>(`/bills/${id}/email`, undefined, { timeoutMs: 45_000 }),
   pay: (id: string, input: PaymentDetailsInput) =>
     api.post<void>(`/bills/${id}/payments`, input),
   reverse: (id: string, reason: string) =>
@@ -665,7 +671,14 @@ export const team = {
 
 // ── Settings (admin) ─────────────────────────────────────────────────────────
 
-export type ServiceRow = { id: string; name: string; basePrice: number; defaultDurationMin: number };
+export type ServiceRow = {
+  id: string;
+  name: string;
+  basePrice: number;
+  defaultDurationMin: number;
+  /** Checklist lines workers tick off on this service's jobs, in order. */
+  checklist: string[];
+};
 export type ExtraRow = { id: string; name: string; price: number };
 export type TaxRateRow = { id: string; name: string; rate: number; active: boolean };
 
@@ -700,6 +713,9 @@ export const settings = {
   updateService: (id: string, input: Omit<SaveServiceInput, "id">) =>
     api.patch<void>(`/settings/services/${id}`, input),
   deleteService: (id: string) => api.del<void>(`/settings/services/${id}`),
+  /** Replaces the service's whole checklist, in order. */
+  saveChecklist: (id: string, items: string[]) =>
+    api.put<{ count: number }>(`/settings/services/${id}/checklist`, { items }),
   createExtra: (input: Omit<SaveExtraInput, "id">) =>
     api.post<{ id: string }>("/settings/extras", input),
   updateExtra: (id: string, input: Omit<SaveExtraInput, "id">) =>
