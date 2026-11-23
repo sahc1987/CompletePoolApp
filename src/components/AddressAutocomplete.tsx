@@ -12,6 +12,10 @@ type Suggestion = {
 // for as-you-type autocomplete. We format its GeoJSON features into a single
 // human-readable address line.
 const PHOTON_URL = "https://photon.komoot.io/api/";
+// Wait for a pause in typing, and don't search for fragments: the free service
+// rate-limits, and most of what is typed on the way to an address is noise.
+const PAUSE_MS = 700;
+const MIN_CHARS = 5;
 
 function formatFeature(f: {
   properties: Record<string, string | undefined>;
@@ -42,6 +46,11 @@ export default function AddressAutocomplete({
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
+  // True once the text is a picked suggestion (or the saved address, untouched).
+  const [verified, setVerified] = useState(defaultValue.trim() !== "");
+  const [status, setStatus] = useState<"idle" | "none" | "error">("idle");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const cache = useRef(new Map<string, Suggestion[]>());
 
   const wrapRef = useRef<HTMLDivElement>(null);
   // Guards against a stale slow response overwriting a newer one.
@@ -50,8 +59,17 @@ export default function AddressAutocomplete({
   // Debounced fetch as the user types.
   useEffect(() => {
     const q = value.trim();
-    if (q.length < 3) {
+    setStatus("idle");
+    // A picked address needs no more lookups (choosing used to trigger one).
+    if (verified || q.length < MIN_CHARS) {
       setSuggestions([]);
+      return;
+    }
+    const hit = cache.current.get(q.toLowerCase());
+    if (hit) {
+      setSuggestions(hit);
+      setOpen(hit.length > 0);
+      setStatus(hit.length === 0 ? "none" : "idle");
       return;
     }
 
@@ -78,19 +96,31 @@ export default function AddressAutocomplete({
             next.push({ label, key: `${label}-${next.length}` });
           }
         }
+        cache.current.set(q.toLowerCase(), next);
         setSuggestions(next);
         setActive(-1);
         setOpen(next.length > 0);
-      } catch {
-        // Aborted or network error — ignore, keep manual typing usable.
+        setStatus(next.length === 0 ? "none" : "idle");
+      } catch (e) {
+        // Aborted by a newer keystroke: ignore. Anything else means the lookup
+        // service is down, so don't block saving on it.
+        if ((e as Error).name !== "AbortError") setStatus("error");
       }
-    }, 300);
+    }, PAUSE_MS);
 
     return () => {
       clearTimeout(t);
       controller.abort();
     };
-  }, [value]);
+  }, [value, verified]);
+
+  // Native form validation blocks the submit until the address is confirmed.
+  useEffect(() => {
+    const ok = verified || status === "error" || value.trim() === "";
+    inputRef.current?.setCustomValidity(
+      ok ? "" : "Pick an address from the suggestions, or choose “Use as typed”."
+    );
+  }, [verified, status, value]);
 
   // Close the dropdown when clicking outside.
   useEffect(() => {
@@ -105,6 +135,7 @@ export default function AddressAutocomplete({
 
   function choose(s: Suggestion) {
     setValue(s.label);
+    setVerified(true);
     setOpen(false);
     setActive(-1);
   }
@@ -135,7 +166,11 @@ export default function AddressAutocomplete({
         required={required}
         placeholder={placeholder}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        ref={inputRef}
+        onChange={(e) => {
+          setValue(e.target.value);
+          setVerified(false);
+        }}
         onKeyDown={onKeyDown}
         onFocus={() => suggestions.length > 0 && setOpen(true)}
         autoComplete="off"
@@ -149,6 +184,19 @@ export default function AddressAutocomplete({
         className={inputClass}
       />
 
+      {!verified && status === "none" && (
+        <p className="mt-1.5 text-sm text-muted">
+          No match found. Check the spelling, or{" "}
+          <button
+            type="button"
+            onClick={() => setVerified(true)}
+            className="font-semibold text-navy-700 hover:underline"
+          >
+            use as typed
+          </button>
+          .
+        </p>
+      )}
       {open && suggestions.length > 0 && (
         <ul
           id={listId}
