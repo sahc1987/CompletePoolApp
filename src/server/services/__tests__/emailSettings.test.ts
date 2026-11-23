@@ -8,13 +8,13 @@ jest.mock("@/lib/prisma", () => ({
   prisma: require("@/test/prismaMock").createPrismaMock(),
 }));
 jest.mock("@/lib/notify", () => ({ notifyAll: jest.fn(), notifyUser: jest.fn(), notifyRoles: jest.fn() }));
-jest.mock("@/server/email/mailer", () => ({ verifyLogin: jest.fn() }));
+jest.mock("@/server/email/mailer", () => ({ verifyLogin: jest.fn(), emailConfigured: jest.fn() }));
 
 const prismaMock: PrismaMock = jest.requireMock("@/lib/prisma").prisma;
-const { verifyLogin } = jest.requireMock("@/server/email/mailer");
+const { verifyLogin, emailConfigured } = jest.requireMock("@/server/email/mailer");
 
 import { open, seal } from "@/server/crypto/secretBox";
-import { saveEmailSettings } from "../settings";
+import { saveEmailSettings, setRemindersEnabled } from "../settings";
 
 const admin: Actor = { id: "a1", role: "ADMIN", name: "Ada" };
 const owner: Actor = { id: "o1", role: "OWNER", name: "Olive" };
@@ -88,5 +88,27 @@ describe("saving only when the login works", () => {
     const res = await saveEmailSettings(admin, { ...input, fromName: "Pool\r\nBcc: x@evil.com" });
     expect(res).toMatchObject({ ok: false, code: "VALIDATION" });
     expect(verifyLogin).not.toHaveBeenCalled();
+  });
+});
+
+describe("turning overdue reminders on", () => {
+  it.each([["a worker", worker], ["the read-only owner", owner]])("refuses %s", async (_n, actor) => {
+    const res = await setRemindersEnabled(actor, { enabled: true });
+    expect(res).toMatchObject({ ok: false, code: "FORBIDDEN" });
+    expect(prismaMock.appSettings.upsert).not.toHaveBeenCalled();
+  });
+
+  it("won't switch on until email works", async () => {
+    emailConfigured.mockResolvedValue(false);
+    const res = await setRemindersEnabled(admin, { enabled: true });
+    expect(res).toMatchObject({ ok: false, code: "VALIDATION" });
+    expect(prismaMock.appSettings.upsert).not.toHaveBeenCalled();
+  });
+
+  it("switches on once email works, and off any time", async () => {
+    emailConfigured.mockResolvedValue(true);
+    expect(await setRemindersEnabled(admin, { enabled: true })).toEqual({ ok: true, data: { enabled: true } });
+    emailConfigured.mockResolvedValue(false);
+    expect(await setRemindersEnabled(admin, { enabled: false })).toEqual({ ok: true, data: { enabled: false } });
   });
 });

@@ -150,3 +150,18 @@ export async function saveEmailSettings(
   revalidatePath("/settings");
   return { ok: true };
 }
+
+// Switch automatic overdue reminders on or off.
+export async function saveReminderSetting(
+  _prev: ActionState,
+  formData: FormData
+): Promise<ActionState> {
+  const actor = await requireRole("ADMIN");
+  const res = await settingsService.setRemindersEnabled(actor, {
+    enabled: opt(formData, "enabled") === "on",
+  });
+  if (!res.ok) return { error: res.error };
+
+  revalidatePath("/settings");
+  return { ok: true };
+}

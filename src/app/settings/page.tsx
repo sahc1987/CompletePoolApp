@@ -1,6 +1,7 @@
 import { getBusinessCatalog, getEmailSettings } from "@/server/services/catalogReads";
 import { isDemoUser } from "@/lib/demo";
 import EmailForm from "./EmailForm";
+import RemindersForm from "./RemindersForm";
 import AppShell from "@/components/AppShell";
 import PageHeader from "@/components/PageHeader";
 import DeleteButton from "@/components/DeleteButton";
@@ -125,6 +126,7 @@ export default async function SettingsPage() {
             user={isDemoUser(session.user) ? null : email.user}
             fromName={isDemoUser(session.user) ? null : email.fromName}
           />
+          <RemindersForm connected={email.connected} enabled={email.remindersEnabled} />
         </section>
 
         {/* Business hours */}

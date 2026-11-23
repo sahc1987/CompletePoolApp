@@ -26,7 +26,7 @@ Single repo, not a workspace monorepo. `mobile/` has its own `tsconfig.json`, `j
 
 ## External integrations and APIs
 - Supabase Postgres and Storage (private `task-photos` bucket, signed upload/download URLs).
-- Vercel Cron (`/api/cron/recurrence`, `/api/cron/photo-retention`).
+- Vercel Cron (`/api/cron/recurrence`, `/api/cron/photo-retention`, `/api/cron/reminders`). Reminders email overdue invoices at 7, 14 and 30 days (max 3), only when an admin has switched them on in Settings → Email.
 - Expo EAS Update (OTA).
 - Leaflet with OpenStreetMap tiles (mobile map).
 - Stripe Checkout for online bill payment via a customer pay link (`/pay/<payToken>`); payments are deduplicated by `stripePaymentIntentId`.

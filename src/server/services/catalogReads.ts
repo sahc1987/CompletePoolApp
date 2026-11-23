@@ -169,17 +169,20 @@ export async function getBusinessCatalog(
  */
 export async function getEmailSettings(
   actor: Actor
-): Promise<ServiceResult<{ connected: boolean; user: string | null; fromName: string | null }>> {
+): Promise<
+  ServiceResult<{ connected: boolean; user: string | null; fromName: string | null; remindersEnabled: boolean }>
+> {
   const denied = assertRole(actor, "ADMIN");
   if (denied) return denied;
 
   const s = await prisma.appSettings.findUnique({
     where: { id: "app" },
-    select: { smtpUser: true, smtpPassEnc: true, smtpFrom: true },
+    select: { smtpUser: true, smtpPassEnc: true, smtpFrom: true, remindersEnabled: true },
   });
   return ok({
     connected: Boolean(s?.smtpUser && s.smtpPassEnc),
     user: s?.smtpUser ?? null,
     fromName: s?.smtpFrom ?? null,
+    remindersEnabled: s?.remindersEnabled ?? false,
   });
 }

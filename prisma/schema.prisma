@@ -170,6 +170,9 @@ model AppSettings {
   smtpPassEnc String?
   // Display name shown to the customer ("Complete Pool Service").
   smtpFrom    String?
+  // Automatic overdue-invoice emails (Settings -> Email). Off until an admin
+  // turns it on, so deploying never emails customers by surprise.
+  remindersEnabled Boolean @default(false)
 
   updatedAt DateTime @updatedAt
 }
@@ -386,6 +389,10 @@ model Bill {
   method    PaymentMethod? // method of the most recent payment (display convenience)
   paidAt    DateTime? // when it was settled in full
   createdAt DateTime       @default(now())
+
+  // Overdue reminders emailed so far (max 3) and when the last one went out.
+  remindersSent  Int       @default(0)
+  lastReminderAt DateTime?
 
   // Secret in the customer's pay link (/pay/<payToken>). Random, never the
   // bill id or invoice number, so a link can't be guessed from another one.

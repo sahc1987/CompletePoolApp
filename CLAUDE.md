@@ -58,7 +58,7 @@ Everything is interpreted in the business timezone stored in `AppSettings` (Sett
 
 ### Other pieces
 
-- Cron (`vercel.json`): `/api/cron/recurrence` expands recurring jobs; `/api/cron/photo-retention` purges photos older than `PHOTO_RETENTION_DAYS` (default 183). Both check `CRON_SECRET` via `src/server/api/cronAuth.ts`. If `CRON_SECRET` is unset, both endpoints are unguarded.
+- Cron (`vercel.json`): `/api/cron/recurrence` expands recurring jobs; `/api/cron/photo-retention` purges photos older than `PHOTO_RETENTION_DAYS` (default 183). `/api/cron/reminders` emails overdue invoices (7/14/30 days, max 3; off until enabled in Settings → Email). All check `CRON_SECRET` via `src/server/api/cronAuth.ts`; in production an unset secret refuses every request.
 - Task photos live in the private Supabase Storage bucket `task-photos` (`src/server/storage/photoStorage.ts`). Clients only ever get short-lived signed upload and download URLs. The storage URL is derived from `DATABASE_URL` unless `SUPABASE_URL` is set. Storage needs `SUPABASE_SERVICE_ROLE_KEY`.
 - Notifications are pushed live over SSE (`src/app/api/notifications/stream`).
 - PDFs (invoices, receipts, estimates) use `@react-pdf/renderer`.

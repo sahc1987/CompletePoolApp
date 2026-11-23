@@ -3,7 +3,7 @@ import { notifyAll } from "@/lib/notify";
 import { hhmmToMin, isValidTimezone } from "@/lib/schedule";
 import { assertRole, type Actor } from "@/server/actor";
 import { seal } from "@/server/crypto/secretBox";
-import { verifyLogin } from "@/server/email/mailer";
+import { emailConfigured, verifyLogin } from "@/server/email/mailer";
 import {
   conflict,
   invalid,
@@ -284,4 +284,27 @@ export async function saveEmailSettings(
     create: { id: "app", ...data },
   });
   return ok({ user });
+}
+
+/**
+ * Turn automatic overdue reminders on or off. Turning them on requires working
+ * email, so the switch can never be on while nothing could be sent.
+ */
+export async function setRemindersEnabled(
+  actor: Actor,
+  input: { enabled: boolean }
+): Promise<ServiceResult<{ enabled: boolean }>> {
+  const denied = assertRole(actor, "ADMIN");
+  if (denied) return denied;
+
+  const enabled = input.enabled === true;
+  if (enabled && !(await emailConfigured())) {
+    return invalid("Connect an email account first, then turn reminders on.");
+  }
+  await prisma.appSettings.upsert({
+    where: { id: "app" },
+    update: { remindersEnabled: enabled },
+    create: { id: "app", remindersEnabled: enabled },
+  });
+  return ok({ enabled });
 }

@@ -17,14 +17,14 @@ Prisma (`prisma/schema.prisma`). Only `src/server/services/*` touch Prisma; page
 - **Task**: client, pool, worker, service, date, startTime, durationMin, status, price, recurrenceRuleId, submittedAt/approvedAt/approvedById, flagReason.
 - **TaskExtra**, **TaskMaterial**: priced snapshots at time of sale/use.
 - **Photo**: taskId, url (private Storage path), type, uploadedAt.
-- **Bill**: invoiceNo (sequential), taskId (unique), amount, status, payToken (unique), checkoutSessionId.
+- **Bill**: invoiceNo (sequential), taskId (unique), amount, status, payToken (unique), checkoutSessionId, remindersSent / lastReminderAt (overdue reminder tracking).
 - **Payment**: receiptNo (sequential), billId, amount, method, stripePaymentIntentId (unique), recordedById.
 - **PaymentReversal**: billId, reason, amountReversed, reversedById.
 - **Material**: name, unit, costPrice, customerPrice, quantityOnHand, reorderThreshold, active.
 - **MaterialRequest**: workerId, materialId?, quantityRequested, taskId?, urgent, status.
 - **StockMovement**: materialId, type, signed quantity, taskId?, note.
 - **Estimate** (+ **EstimateLineItem**, **EstimateTax**, **TaxRate**): client, pool?, status, signature data, snapshotted subtotal/taxTotal/total, convertedTaskId (unique).
-- **AppSettings**: business timezone, business hours, company details and other global settings. Includes the outgoing-email login (`smtpUser`, encrypted `smtpPassEnc`, `smtpFrom`), empty until an admin completes Settings → Email.
+- **AppSettings**: business timezone, business hours, company details and other global settings. Includes the outgoing-email login (`smtpUser`, encrypted `smtpPassEnc`, `smtpFrom`), empty until an admin completes Settings → Email, and `remindersEnabled` (default off).
 - **Notification**: userId, read.
 - **RefreshToken**, **ApiRateLimit**, **LoginAttempt**, **LoginSource**: auth and abuse protection.
 
