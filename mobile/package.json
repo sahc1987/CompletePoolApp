@@ -42,6 +42,7 @@
     "bundle:check": "expo export --platform ios --output-dir .expo/bundle-check --clear",
     "test": "jest",
     "build:android": "eas build --platform android --profile production",
+    "update:check": "node scripts/check-update.js",
     "update": "eas update --channel production --environment production --platform android"
   },
   "private": true,

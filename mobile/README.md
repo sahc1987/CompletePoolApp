@@ -81,6 +81,12 @@ npm run update          # publishes to the "production" channel
 
 Phones pick an update up on their next launch or two.
 
+To check the newest code is already published (needs `npx eas-cli login`):
+
+```bash
+npm run update:check    # lists commits to mobile/ or the contracts that no update has yet
+```
+
 **When a new APK is needed:** a new native module or a config-plugin change needs a new build. Bump `version` in `app.json` first.
 - `runtimeVersion` follows the app version, so an update is never sent to a build that can't run it.
 
